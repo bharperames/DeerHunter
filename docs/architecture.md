@@ -6,15 +6,19 @@ High-level view of the deployed device, the developer's machine, and external se
 
 ```mermaid
 flowchart LR
-  DEV["💻 MacBook\nDevelopment &\ntesting"]
-  PI["🥧 Raspberry Pi Zero 2W\nTrail camera device"]
-  NTFY["☁️ ntfy.sh\nPush notification relay"]
-  PHONE["📱 Phone / Browser\nAlerts + dashboard"]
+  DEV["💻 MacBook
+Development & testing"]
+  PI["🥧 Raspberry Pi Zero 2W
+Trail camera device"]
+  NTFY["☁️ ntfy.sh
+Push notification relay"]
+  PHONE["📱 Phone / Browser
+Alerts + dashboard"]
 
-  DEV -- "git push\ndeploy" --> PI
-  PI -- "HTTP POST\nalert + snapshot" --> NTFY
+  DEV -- "git push / deploy" --> PI
+  PI -- "HTTP POST alert + snapshot" --> NTFY
   NTFY -- "push notification" --> PHONE
-  PI -- "HTTP :8080\nweb dashboard" --> PHONE
+  PI -- "HTTP :8080 web dashboard" --> PHONE
 ```
 
 ---
@@ -26,23 +30,35 @@ Physical components mounted in the weatherproof enclosure.
 ```mermaid
 flowchart TB
   subgraph PWR["Power System"]
-    SOLAR["☀️ 6V Solar Panel"]
-    LIPO["🔋 5000mAh 18650 LiPo"]
-    CHARGER["TP4056 Charger\n+ protection circuit"]
-    BOOST["5V Boost Converter\nto Pi USB-C"]
-    SOLAR -- "charges" --> CHARGER
+    SOLAR["☀️ 6V 2W Solar Panel
+ETFE laminate"]
+    LIPO["🔋 2× 18650 LiPo in parallel
+~5000mAh · 3.7V nominal"]
+    CHARGER["TP4056 USB-C Charger
++ over-discharge protection"]
+    BOOST["5V Boost Converter
+output to Pi USB-C"]
+    SOLAR -- "charges via 5V USB" --> CHARGER
     CHARGER -- "maintains" --> LIPO
     LIPO --> BOOST
   end
 
   subgraph PI["Raspberry Pi Zero 2W"]
-    CPU["ARM Cortex-A53 · 512MB RAM\n2.4GHz WiFi · Bluetooth"]
+    CPU["ARM Cortex-A53 · 512MB RAM
+2.4GHz WiFi · Bluetooth"]
   end
 
   subgraph PERIPH["Peripherals"]
-    PIR["HC-SR501 PIR\nPassive infrared motion sensor\n~50µA standby · 3–7m range\nConnects: GPIO 17 (BCM)"]
-    CAM["Pi Camera Module v3 NoIR\nNo IR-cut filter → night vision\n12MP · CSI ribbon cable"]
-    SPK["Speaker\nUSB audio adapter or\nI2S MAX98357A amp"]
+    PIR["HC-SR501 PIR
+Passive infrared motion sensor
+~50µA standby · 3–7m range
+GPIO 17 (BCM)"]
+    CAM["Pi Camera Module v3 NoIR
+No IR-cut filter — night vision
+12MP · CSI ribbon cable"]
+    SPK["Speaker
+I2S MAX98357A amp
+or USB audio adapter"]
   end
 
   BOOST -- "5V" --> CPU
@@ -51,12 +67,41 @@ flowchart TB
   CPU -- "audio out" --> SPK
 ```
 
-**Power budget:**
-| State | Current | Notes |
+### Power Budget
+
+**Per-component current draw at 5V:**
+
+| Component | State | Current | Power |
+|---|---|---|---|
+| Pi Zero 2W — CPU only | Idle, powersave governor | ~80mA | 0.40W |
+| Pi Zero 2W — active inference | YOLOv8 TFLite running | ~250mA | 1.25W |
+| Pi Camera v3 | Streaming / capturing | ~50mA | 0.25W |
+| HC-SR501 PIR | Always on (standby) | ~0.05mA | negligible |
+| MAX98357A amp + speaker | Playing audio (50% vol) | ~150mA | 0.75W |
+| TP4056 charger circuit | Quiescent | ~3mA | negligible |
+| **Idle total** (PIR awake, no inference) | — | **~85mA** | **0.43W** |
+| **Active total** (inference + camera) | — | **~300mA** | **1.50W** |
+| **Peak total** (inference + camera + audio) | — | **~450mA** | **2.25W** |
+
+**Battery runtime estimates (5000mAh pack, 3.7V → 5V @ ~85% boost efficiency):**
+
+| Scenario | Avg current | Runtime |
 |---|---|---|
-| Active (inference) | ~300mA @ 5V | Camera + CPU at full speed |
-| Idle (PIR polling) | ~15mA | HDMI off, CPU powersave governor |
-| Target runtime | ≥3 days | 5000mAh pack without sun |
+| Mostly idle, 2 detections/hr (15s active each) | ~95mA | **~47 hours (≈2 days)** |
+| Moderate activity, 10 detections/hr | ~140mA | **~32 hours (≈1.3 days)** |
+| Continuous inference (stress test) | ~300mA | **~15 hours** |
+
+> Usable capacity ≈ 5000mAh × 3.7V / 5V × 85% efficiency ≈ **3145mAh** at 5V.
+
+**Solar charging:**
+
+| Condition | Panel output | Charge current (after regulation) | Net balance at idle |
+|---|---|---|---|
+| Full sun (4 peak hours/day) | 6V · 333mA = 2W | ~340mA average into TP4056 | +255mAh/day vs −2280mAh/day consumed → **not enough alone** |
+| Full sun (6 peak hours/day, summer) | 6V · 333mA = 2W | ~340mA × 6h = 2040mAh/day | Nearly covers idle consumption |
+| Partial overcast | ~80mA effective | ~80mA × 8h = 640mAh/day | Extends runtime by ~7 hours |
+
+> The 6V 2W panel (333mA peak) feeds into the TP4056's 5V USB input via a small buck converter (or used directly if panel Voc ≤ 5.5V). In a typical backyard summer deployment with 5–6 peak sun hours, the panel can sustain near-indefinite operation at idle activity levels. In winter or heavy overcast, the 5000mAh pack provides 2–3 days of buffer.
 
 ---
 
@@ -106,20 +151,35 @@ Rules are defined in `config/rules.yaml` using an IFTTT-style trigger/action mod
 
 ```mermaid
 flowchart TD
-  YAML["config/rules.yaml\nSource of truth for all behaviour"]
+  YAML["config/rules.yaml
+Source of truth for all behaviour"]
 
   subgraph TRIGGER["Trigger Conditions (all must pass)"]
-    EV["event:\ndeer_detected | motion_detected"]
-    TOD["time_of_day:\nHH:MM–HH:MM range\nsupports overnight e.g. 20:00–06:00"]
-    CONF["min_confidence:\n0.0–1.0  (YOLOv8 score)"]
-    CD["cooldown_seconds:\nper-rule timer\nresets after each fire"]
-    COUNT["count override:\nskip cooldown if deer count\nexceeds previous trigger"]
+    EV["event:
+deer_detected | motion_detected"]
+    TOD["time_of_day:
+HH:MM–HH:MM range
+supports overnight e.g. 20:00–06:00"]
+    CONF["min_confidence:
+0.0–1.0  (YOLOv8 score)"]
+    CD["cooldown_seconds:
+per-rule timer
+resets after each fire"]
+    COUNT["count override:
+skip cooldown if deer count
+exceeds previous trigger"]
   end
 
   subgraph ACTIONS["Actions (dispatched in parallel threads)"]
-    A_AUDIO["audio\nPlay .wav via pygame or aplay\nConfigurable volume"]
-    A_NOTIFY["notify\nPOST to ntfy.sh topic\nOptional JPEG attachment"]
-    A_RECORD["record\nSave snapshot + H264 clip\nConfigurable duration"]
+    A_AUDIO["audio
+Play .wav via pygame or aplay
+Configurable volume"]
+    A_NOTIFY["notify
+POST to ntfy.sh topic
+Optional JPEG attachment"]
+    A_RECORD["record
+Save snapshot + H264 clip
+Configurable duration"]
   end
 
   YAML --> TRIGGER
@@ -153,19 +213,33 @@ flowchart TD
 ```mermaid
 flowchart LR
   subgraph INPUT["Input"]
-    FRAME["RGB frame\nnumpy array H×W×3"]
+    FRAME["RGB frame
+numpy array H×W×3"]
   end
 
   subgraph BACKENDS["Detector backends (auto-selected)"]
     direction TB
-    TF["TFLite INT8\nyolov8n_int8.tflite\n~3MB · ~1–2 FPS on Pi Zero 2W\nTarget: Raspberry Pi"]
-    CORAL["Edge TPU delegate\nGoogle Coral USB\nauto-detected if attached\n~10× faster inference"]
-    ULTRA["UltralyticsDetector\nyolov8s-worldv2.pt · ~25MB\nYOLOWorld open-vocabulary\nTarget: macOS dev"]
-    STUB["StubDetector\nConfigurable fake output\nTarget: unit tests"]
+    TF["TFLite INT8
+yolov8n_int8.tflite
+~3MB · ~1–2 FPS on Pi Zero 2W
+Target: Raspberry Pi"]
+    CORAL["Edge TPU delegate
+Google Coral USB
+auto-detected if attached
+~10× faster inference"]
+    ULTRA["UltralyticsDetector
+yolov8s-worldv2.pt · ~25MB
+YOLOWorld open-vocabulary
+Target: macOS dev"]
+    STUB["StubDetector
+Configurable fake output
+Target: unit tests"]
   end
 
   subgraph OUTPUT["Output"]
-    DET["Detection list\nclass_name · confidence\nbbox (x1,y1,x2,y2) normalised"]
+    DET["Detection list
+class_name · confidence
+bbox (x1,y1,x2,y2) normalised"]
   end
 
   FRAME --> TF & CORAL & ULTRA & STUB
@@ -184,25 +258,48 @@ Served by FastAPI + uvicorn on port 8080. All pages use HTTP Basic Auth. The liv
 flowchart LR
   subgraph SERVER["FastAPI  app.py"]
     direction TB
-    AUTH["HTTP Basic Auth\ncredentials from rules.yaml"]
-    MJPEG_GEN["MJPEG generator\nRuns detector on every frame\nDraws red bounding boxes\nStreams multipart/x-mixed-replace"]
-    SNAPSHOT["GET /snapshot/image\nSingle annotated JPEG"]
-    DET_API["GET /live/detections\nHTMX partial — trigger event list\n5s cooldown · count-increase override"]
-    RESTART["POST /live/restart\nRewind VideoCapture cursor\nClear event log"]
-    RULES_API["GET+POST /rules\nRead/write rules.yaml\nYAML validated before save"]
-    EVENTS_API["GET /events\nHTMX partial — snapshot log"]
+    AUTH["HTTP Basic Auth
+credentials from rules.yaml"]
+    MJPEG_GEN["MJPEG generator
+Runs detector on every frame
+Draws red bounding boxes
+Streams multipart/x-mixed-replace"]
+    SNAPSHOT["GET /snapshot/image
+Single annotated JPEG"]
+    DET_API["GET /live/detections
+HTMX partial — trigger event list
+5s cooldown · count-increase override"]
+    RESTART["POST /live/restart
+Rewind VideoCapture cursor
+Clear event log"]
+    RULES_API["GET+POST /rules
+Read/write rules.yaml
+YAML validated before save"]
+    EVENTS_API["GET /events
+HTMX partial — snapshot log"]
   end
 
   subgraph PAGES["Browser pages"]
-    LIVE_PAGE["/live\nMJPEG stream + trigger panel\nRestart button"]
-    EVENTS_PAGE["/ Events\nSnapshot thumbnails + timestamps\nAuto-refreshes every 15s"]
-    RULES_PAGE["/rules\nYAML textarea editor\nSave validates before writing"]
-    STATUS_PAGE["/status\nSystem JSON — uptime, counts,\ncamera + detector availability"]
+    LIVE_PAGE["/live
+MJPEG stream + trigger panel
+Restart button"]
+    EVENTS_PAGE["/ Events
+Snapshot thumbnails + timestamps
+Auto-refreshes every 15s"]
+    RULES_PAGE["/rules
+YAML textarea editor
+Save validates before writing"]
+    STATUS_PAGE["/status
+System JSON — uptime, counts,
+camera + detector availability"]
   end
 
   subgraph CAMERA_SRC["Video source"]
-    VIDFEED["VideoFeedCamera\nOpenCV VideoCapture\nseek_to_start() on restart"]
-    PICAM["picamera2\nLive CSI camera on Pi"]
+    VIDFEED["VideoFeedCamera
+OpenCV VideoCapture
+seek_to_start() on restart"]
+    PICAM["picamera2
+Live CSI camera on Pi"]
   end
 
   AUTH --> MJPEG_GEN & SNAPSHOT & DET_API & RESTART & RULES_API & EVENTS_API
@@ -225,28 +322,52 @@ The entire pipeline runs on a MacBook without any Pi hardware. Hardware classes 
 ```mermaid
 flowchart TB
   subgraph REAL["Pi hardware classes"]
-    R_PIR["pir.py\ngpiozero MotionSensor"]
-    R_CAM["camera.py\npicamera2"]
-    R_DET["TFLite INT8\ntflite-runtime"]
+    R_PIR["pir.py
+gpiozero MotionSensor"]
+    R_CAM["camera.py
+picamera2"]
+    R_DET["TFLite INT8
+tflite-runtime"]
   end
 
   subgraph STUB["macOS replacements — same public API"]
-    S_PIR["StubMotionSensor\nsimulate_motion() fires callback"]
-    S_CAM["StubCamera\nImages from file / directory\nor synthetic grey frames"]
-    S_VID["VideoFeedCamera\nOpenCV reads .mov/.mp4\nloops · realtime pacing\nseek_to_start()"]
-    S_DET["UltralyticsDetector\nYOLOWorld + CLIP\nzero-shot deer detection"]
-    S_STUB["StubDetector\nfake_detections=[ ] list\nfor unit tests"]
+    S_PIR["StubMotionSensor
+simulate_motion() fires callback"]
+    S_CAM["StubCamera
+Images from file / directory
+or synthetic grey frames"]
+    S_VID["VideoFeedCamera
+OpenCV reads .mov/.mp4
+loops · realtime pacing
+seek_to_start()"]
+    S_DET["UltralyticsDetector
+YOLOWorld + CLIP
+zero-shot deer detection"]
+    S_STUB["StubDetector
+fake_detections=[ ] list
+for unit tests"]
   end
 
   subgraph HARNESS["src/harness.py — CLI test runner"]
-    H["Reads video file frame by frame\nSimulates PIR trigger every N frames\nRuns full pipeline: detect → rules → actions\n--dry-run suppresses real actions\nPrints clean detection log + summary"]
+    H["Reads video file frame by frame
+Simulates PIR trigger every N frames
+Runs full pipeline: detect → rules → actions
+--dry-run suppresses real actions
+Prints clean detection log + summary"]
   end
 
   subgraph TESTS["tests/  (pytest · 37 tests)"]
-    T_RULES["test_rules.py\nCooldown · time windows\nrule dispatch · dry-run"]
-    T_DET["test_detector.py\nStub detections · burst · filtering"]
-    T_SENS["test_sensors.py\nPIR callbacks · StubCamera\nframe shapes · directory loading"]
-    T_HARNESS["test_harness.py\nSynthetic .mp4 via OpenCV\nfull harness dry-run"]
+    T_RULES["test_rules.py
+Cooldown · time windows
+rule dispatch · dry-run"]
+    T_DET["test_detector.py
+Stub detections · burst · filtering"]
+    T_SENS["test_sensors.py
+PIR callbacks · StubCamera
+frame shapes · directory loading"]
+    T_HARNESS["test_harness.py
+Synthetic .mp4 via OpenCV
+full harness dry-run"]
   end
 
   R_PIR -.->|"replaced by"| S_PIR
@@ -274,6 +395,37 @@ The web dashboard event log is built by scanning `storage/snapshots/` — no dat
 
 ---
 
+## Bill of Materials
+
+Estimated prices as of early 2026. Links are representative — parts are available from multiple vendors.
+
+| # | Component | Part / SKU | Vendor | Unit Price |
+|---|---|---|---|---|
+| 1 | SBC | Raspberry Pi Zero 2W | PiShop.us | $17.25 |
+| 2 | Camera | Pi Camera Module v3 NoIR — Adafruit #5660 | Adafruit | $25.00 |
+| 3 | Motion sensor | HC-SR501 PIR sensor | PiShop.us | $3.95 |
+| 4 | Amplifier | MAX98357A I2S Class D Amp breakout — Adafruit #3006 | Adafruit | $5.95 |
+| 5 | Speaker | 3W 8Ω mini speaker, 40mm — CQRobot | Amazon | $3.99 |
+| 6 | Cells | 2× Samsung 35E 18650 3500mAh (series = 7000mAh @ 3.7V) | IMR Batteries | $10.00 |
+| 7 | Battery holder | 2S 18650 holder with leads | Amazon | $2.00 |
+| 8 | Charger / protection | TP4056 USB-C 1A LiPo charger + DW01 protection | Addicore | $1.80 |
+| 9 | Boost converter | 5V 2A MT3608 boost module | Amazon | $1.50 |
+| 10 | Solar panel | 6V 2W ETFE solar panel — Adafruit #5366 | Adafruit | $20.95 |
+| 11 | CSI cable | 15-pin 30cm FFC ribbon for Pi Zero | Arducam / Amazon | $4.00 |
+| 12 | USB-C cable | Short right-angle USB-C (Pi power) | Amazon | $3.50 |
+| 13 | Power switch | Rocker switch SPST — SparkFun COM-11138 | SparkFun | $0.75 |
+| 14 | Enclosure | 3D printed PETG (≈200g) — Hatchbox 1kg spool | Amazon | $5.20 |
+| 15 | Misc | Jumper wires, heat-shrink, M2.5 screws | — | ~$3.00 |
+| | | | **Total** | **~$109** |
+
+> **Notes:**
+> - The Pi Camera v3 NoIR has no IR-cut filter, enabling night vision with a cheap IR illuminator. The standard v3 (with IR cut) is ~$5 less but loses night capability.
+> - Two 18650 cells in parallel (not series) gives ~7000mAh at 3.7V, boosted to 5V. This exceeds the 3-day runtime target without sun.
+> - The solar panel's 6V Voc feeds the TP4056's USB-C input directly when panel voltage stays ≤ 5.5V (typical with a Schottky diode drop) or via a small LDO/buck.
+> - Optional upgrade: Google Coral USB Accelerator (~$25, Coral store) brings inference from ~1–2 FPS to ~15–20 FPS on the Pi Zero 2W.
+
+---
+
 ## Component Reference
 
 ### Hardware
@@ -283,9 +435,9 @@ The web dashboard event log is built by scanning `storage/snapshots/` — no dat
 | SBC | Raspberry Pi Zero 2W | Main compute — runs all software, WiFi |
 | Camera | Pi Camera v3 NoIR | IR-capable image capture via CSI |
 | Motion sensor | HC-SR501 PIR | Hardware interrupt wake from sleep, ~50µA standby |
-| Speaker | USB audio adapter + speaker | Plays deterrent audio (.wav files) |
-| Battery | 5000mAh 18650 LiPo + TP4056 | Powers device; TP4056 handles charging + protection |
-| Solar | 6V panel + boost converter | Trickle-charges battery for multi-day runtime |
+| Amplifier + speaker | MAX98357A + 3W speaker | Plays deterrent audio (.wav files) |
+| Battery | 2× 18650 LiPo + TP4056 | Powers device; TP4056 handles charging + protection |
+| Solar | 6V 2W ETFE panel + boost | Trickle-charges battery for extended runtime |
 | Enclosure | 3D printed PETG | Weatherproof housing for outdoor deployment |
 
 ### Software — Core
