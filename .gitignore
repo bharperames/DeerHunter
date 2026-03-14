@@ -1,0 +1,33 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+.venv/
+venv/
+*.egg-info/
+dist/
+build/
+.pytest_cache/
+
+# ML models (large binary files — downloaded by install.sh)
+src/detection/models/*.tflite
+src/detection/models/*.pt
+yolov8n_saved_model/
+*.pt
+
+# Storage (event clips and snapshots)
+storage/clips/
+storage/snapshots/
+
+# Environment / secrets
+.env
+*.env
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Editor
+.vscode/
+.idea/
+*.swp

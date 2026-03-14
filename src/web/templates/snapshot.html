@@ -1,0 +1,15 @@
+{% extends "base.html" %}
+{% block title %}Live Snapshot — DeerHunter{% endblock %}
+{% block content %}
+<h1>Live Snapshot</h1>
+<p>
+  <img id="live"
+       src="/snapshot/image"
+       alt="Live snapshot"
+       class="snapshot"
+       hx-get="/snapshot/image"
+       hx-trigger="every 5s"
+       hx-swap="outerHTML">
+</p>
+<p><small>Refreshes every 5 seconds via HTMX.</small></p>
+{% endblock %}

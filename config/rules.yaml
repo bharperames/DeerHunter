@@ -1,0 +1,69 @@
+# DeerHunter Rules Configuration
+# IFTTT-style trigger/action rules
+
+web:
+  host: "0.0.0.0"
+  port: 8080
+  username: "admin"
+  password: "changeme"   # Change before deploying
+
+camera:
+  resolution: [1280, 720]
+  framerate: 10
+  burst_frames: 5          # How many frames to capture per trigger
+
+detector:
+  model_path: "src/detection/models/yolov8n_int8.tflite"
+  input_size: 640          # Model input resolution
+  deer_class_id: 93        # COCO class 93 = deer
+  default_confidence: 0.60
+
+storage:
+  clips_dir: "storage/clips"
+  snapshots_dir: "storage/snapshots"
+  max_events: 500          # Rotate oldest events beyond this count
+
+notifications:
+  ntfy_url: "https://ntfy.sh"
+  topic: "deerhunter-alerts"  # Change to your private topic
+
+rules:
+  - name: "Deer daytime deterrent"
+    trigger:
+      event: deer_detected
+      conditions:
+        min_confidence: 0.70
+        time_of_day: "06:00-20:00"
+        cooldown_seconds: 120
+    actions:
+      - type: audio
+        file: "predator_call.wav"
+        volume: 90
+      - type: notify
+        message: "Deer detected!"
+        attach_snapshot: true
+      - type: record
+        duration_seconds: 30
+
+  - name: "Deer nighttime deterrent"
+    trigger:
+      event: deer_detected
+      conditions:
+        min_confidence: 0.60
+        time_of_day: "20:00-06:00"
+        cooldown_seconds: 180
+    actions:
+      - type: notify
+        message: "Deer detected at night!"
+        attach_snapshot: true
+      - type: record
+        duration_seconds: 30
+
+  - name: "Night motion record"
+    trigger:
+      event: motion_detected
+      conditions:
+        time_of_day: "20:00-06:00"
+    actions:
+      - type: record
+        duration_seconds: 15

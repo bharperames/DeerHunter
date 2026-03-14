@@ -1,0 +1,16 @@
+{% if events %}
+<div class="det-row det-row--header">
+  <span>Time</span>
+  <span>Count</span>
+  <span>Conf</span>
+</div>
+{% for e in events %}
+<div class="det-event {% if loop.first %}det-event--new{% endif %}">
+  <span class="det-time">{{ e.time }}</span>
+  <span class="det-count">{{ e.count }}</span>
+  <span class="det-conf">{{ "%.0f"|format(e.confidence * 100) }}%</span>
+</div>
+{% endfor %}
+{% else %}
+<p class="det-empty">No detections yet</p>
+{% endif %}

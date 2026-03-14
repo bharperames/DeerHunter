@@ -1,0 +1,11 @@
+{% extends "base.html" %}
+{% block title %}Events — DeerHunter{% endblock %}
+{% block content %}
+<h1>Event Log</h1>
+<div id="event-list"
+     hx-get="/events"
+     hx-trigger="every 15s"
+     hx-swap="innerHTML">
+  {% include "partials/events.html" %}
+</div>
+{% endblock %}

@@ -1,0 +1,24 @@
+{% if events %}
+<table>
+  <thead>
+    <tr>
+      <th>Thumbnail</th>
+      <th>Timestamp</th>
+    </tr>
+  </thead>
+  <tbody>
+    {% for event in events %}
+    <tr>
+      <td>
+        <a href="{{ event.url }}" target="_blank">
+          <img src="{{ event.url }}" alt="snapshot" class="thumb">
+        </a>
+      </td>
+      <td>{{ event.timestamp }}</td>
+    </tr>
+    {% endfor %}
+  </tbody>
+</table>
+{% else %}
+<p class="empty">No events recorded yet.</p>
+{% endif %}

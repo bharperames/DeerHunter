@@ -1,0 +1,20 @@
+picamera2          # Raspberry Pi camera (Pi OS package preferred)
+gpiozero           # PIR GPIO handling
+tflite-runtime     # ML inference (or full tensorflow on Pi 4+)
+ultralytics        # YOLOv8 (for model export on dev machine only)
+# pycoral          # Optional: Coral Edge TPU support (uncomment if using)
+pygame             # Audio playback
+requests           # ntfy.sh notifications
+fastapi
+uvicorn[standard]
+jinja2
+python-multipart
+pyyaml
+apscheduler
+numpy
+pillow
+
+# Harness / development (macOS and non-Pi machines)
+opencv-python-headless  # Video file playback for testing harness
+openai-clip             # Required for YOLOWorld open-vocabulary detection
+pytest

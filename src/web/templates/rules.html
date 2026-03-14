@@ -1,0 +1,19 @@
+{% extends "base.html" %}
+{% block title %}Rules Editor — DeerHunter{% endblock %}
+{% block content %}
+<h1>Rules Editor</h1>
+
+{% if saved %}
+<div class="alert alert-success">Rules saved successfully.</div>
+{% endif %}
+{% if error %}
+<div class="alert alert-error">YAML error: {{ error }}</div>
+{% endif %}
+
+<form method="post" action="/rules">
+  <textarea name="rules_yaml" rows="40" spellcheck="false">{{ rules_yaml }}</textarea>
+  <br>
+  <button type="submit">Save Rules</button>
+</form>
+<p><small>Changes take effect on the next event evaluation. The main service re-reads the config automatically.</small></p>
+{% endblock %}

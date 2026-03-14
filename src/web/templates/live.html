@@ -1,0 +1,46 @@
+{% extends "base.html" %}
+{% block title %}Live Feed — DeerHunter{% endblock %}
+{% block content %}
+<h1>Live Feed</h1>
+<div class="live-layout">
+
+  <div class="live-left">
+    <div class="frame-box">
+      <img id="live-frame" src="/stream" alt="Live feed" class="live-frame">
+    </div>
+    <div id="status-bar">
+      <span class="dot dot-live"></span>
+      <span>Live &mdash; detections overlaid in red</span>
+      <button class="btn-restart"
+              hx-post="/live/restart"
+              hx-swap="none"
+              onclick="restartStream()">&#8635; Restart</button>
+    </div>
+  </div>
+
+  <aside class="det-panel">
+    <div class="det-header">
+      <span>Trigger Events</span>
+      <span class="det-cooldown">5 s cooldown</span>
+    </div>
+    <div id="det-list"
+         hx-get="/live/detections"
+         hx-trigger="every 2s"
+         hx-swap="innerHTML">
+      <p class="det-empty">No detections yet</p>
+    </div>
+  </aside>
+
+</div>
+<script>
+  const img = document.getElementById('live-frame');
+  img.onerror = function() {
+    setTimeout(function() { img.src = '/stream?' + Date.now(); }, 2000);
+  };
+
+  function restartStream() {
+    // Give the server a moment to rewind, then reconnect the stream
+    setTimeout(function() { img.src = '/stream?' + Date.now(); }, 300);
+  }
+</script>
+{% endblock %}
