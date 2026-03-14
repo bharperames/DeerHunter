@@ -145,3 +145,283 @@ img.live-frame { width: 100%; height: 100%; object-fit: contain; display: block;
 
 /* Single snapshot page */
 img.snapshot { max-width: 720px; width: 100%; border-radius: 6px; border: 1px solid var(--border); }
+
+/* ─── Hardware Monitor ──────────────────────────────────────────────────── */
+.hw-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  grid-template-rows: auto auto;
+  gap: 1rem;
+}
+.hw-card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 1rem;
+}
+.hw-card--wide {
+  grid-column: 1 / -1;   /* span full width */
+}
+.hw-card-title {
+  font-size: 0.78rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: #888;
+  margin-bottom: 0.75rem;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+.hw-badge {
+  font-size: 0.68rem;
+  font-weight: 600;
+  padding: 0.1rem 0.45rem;
+  border-radius: 3px;
+  background: #2a2a2a;
+  color: #666;
+  letter-spacing: 0.04em;
+}
+.hw-badge--active {
+  background: #1a3a1a;
+  color: var(--accent);
+  box-shadow: 0 0 6px rgba(106,191,105,0.3);
+}
+
+/* GPIO SVG diagram */
+.gpio-svg {
+  width: 100%;
+  max-width: 700px;
+  height: auto;
+  display: block;
+  margin: 0 auto 0.75rem;
+}
+
+/* GPIO pin strip table */
+.pin-strip {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  margin-top: 0.5rem;
+  border-top: 1px solid var(--border);
+  padding-top: 0.5rem;
+}
+.pin-row {
+  display: grid;
+  grid-template-columns: 56px 72px 1fr auto auto;
+  gap: 0.5rem;
+  align-items: center;
+  font-size: 0.78rem;
+  padding: 0.2rem 0.4rem;
+  border-radius: 4px;
+}
+.pin-row--active {
+  background: rgba(106,191,105,0.07);
+}
+.pin-row--static {
+  opacity: 0.6;
+}
+.pin-num {
+  font-family: monospace;
+  font-size: 0.72rem;
+  color: #555;
+  font-weight: 600;
+}
+.pin-sig {
+  font-family: monospace;
+  font-size: 0.78rem;
+  color: #aaa;
+}
+.pin-role {
+  color: #666;
+}
+.pin-state {
+  font-family: monospace;
+  font-size: 0.72rem;
+  font-weight: 700;
+  color: #555;
+  text-align: right;
+  min-width: 44px;
+}
+.pin-state--hi { color: var(--accent); }
+.pin-row--active .pin-state { color: var(--accent); }
+.pin-volt {
+  font-family: monospace;
+  font-size: 0.7rem;
+  color: #555;
+  text-align: right;
+  min-width: 36px;
+}
+
+/* Motion level section */
+.motion-row {
+  display: flex;
+  gap: 1rem;
+  align-items: flex-start;
+}
+
+/* VU meter */
+.vu-wrap {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.3rem;
+  flex-shrink: 0;
+}
+.vu-meter {
+  width: 28px;
+  height: 120px;
+  background: #111;
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  position: relative;
+  overflow: hidden;
+  display: flex;
+  align-items: flex-end;
+}
+.vu-bar {
+  width: 100%;
+  background: linear-gradient(to top, var(--accent) 0%, #b8df50 60%, #cf6679 100%);
+  min-height: 2px;
+}
+.vu-bar--active {
+  box-shadow: 0 0 8px rgba(106,191,105,0.4);
+}
+.vu-threshold {
+  position: absolute;
+  left: 0; right: 0;
+  height: 1px;
+  background: #cf6679;
+  opacity: 0.7;
+}
+.vu-pct {
+  font-size: 0.72rem;
+  font-family: monospace;
+  color: #888;
+  text-align: center;
+}
+
+/* Sparkline */
+.sparkline-wrap {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+}
+.sparkline-label-top {
+  font-size: 0.7rem;
+  color: #666;
+}
+.sparkline-svg {
+  width: 100%;
+  height: 48px;
+  display: block;
+  border-radius: 4px;
+  background: #111;
+  border: 1px solid var(--border);
+}
+.sparkline-legend {
+  font-size: 0.68rem;
+  color: #666;
+  display: flex;
+  gap: 0.75rem;
+  align-items: center;
+}
+.legend-dot {
+  display: inline-block;
+  width: 8px;
+  height: 2px;
+  border-radius: 1px;
+  vertical-align: middle;
+  margin-right: 2px;
+}
+
+/* Stats grid */
+.hw-stats {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 0.2rem 0.75rem;
+  font-size: 0.8rem;
+  margin-top: 0.75rem;
+}
+.hw-stats dt { color: #666; }
+.hw-stats dd { color: var(--text); font-variant-numeric: tabular-nums; }
+.hw-stats--compact { margin-top: 0.5rem; }
+.stat-detected { color: var(--accent); font-weight: 700; }
+
+/* Pipeline state machine */
+.pipeline {
+  display: flex;
+  align-items: center;
+  gap: 0;
+  flex-wrap: wrap;
+  margin-bottom: 0.75rem;
+}
+.pipe-col {
+  display: flex;
+  align-items: center;
+}
+.pipe-step {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.15rem;
+  padding: 0.4rem 0.6rem;
+  border-radius: 6px;
+  border: 1px solid var(--border);
+  background: #111;
+  min-width: 68px;
+  opacity: 0.4;
+  transition: opacity 0.3s, border-color 0.3s;
+}
+.pipe-step--active {
+  opacity: 1;
+  border-color: var(--accent);
+  background: rgba(106,191,105,0.08);
+}
+.pipe-step--detected {
+  border-color: #e07070;
+  background: rgba(220,80,80,0.1);
+}
+.pipe-icon {
+  font-size: 1rem;
+  color: #555;
+}
+.pipe-step--active .pipe-icon { color: var(--accent); }
+.pipe-step--detected .pipe-icon { color: #e07070; }
+.pipe-label {
+  font-size: 0.65rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: #555;
+}
+.pipe-step--active .pipe-label { color: var(--accent); }
+.pipe-step--detected .pipe-label { color: #e07070; }
+.pipe-arrow-wrap { padding: 0 0.2rem; }
+.pipe-arrow {
+  color: #444;
+  font-size: 1.2rem;
+  font-weight: 300;
+}
+.pipe-step--active + .pipe-arrow-wrap .pipe-arrow { color: var(--accent); }
+
+/* Pipeline description */
+.pipeline-desc {
+  margin-top: 0.5rem;
+  min-height: 2.4em;
+}
+.pdesc {
+  font-size: 0.78rem;
+  color: #666;
+  font-style: italic;
+}
+.pdesc--motion    { color: #e0b060; }
+.pdesc--detecting { color: #60b0e0; }
+.pdesc--detected  { color: var(--accent); font-style: normal; font-weight: 600; }
+
+@media (max-width: 700px) {
+  .hw-grid { grid-template-columns: 1fr; }
+  .hw-card--wide { grid-column: 1; }
+  .pipeline { gap: 0.2rem; }
+}

@@ -1,0 +1,16 @@
+{% extends "base.html" %}
+{% block title %}Hardware — DeerHunter{% endblock %}
+{% block content %}
+<h1>Hardware Monitor</h1>
+<p style="color:#888;font-size:0.85rem;margin-bottom:1.2rem;">
+  Live system state — GPIO signals, motion level, and detection pipeline.
+  Updates every 400 ms.
+</p>
+
+<div id="hw-panel"
+     hx-get="/api/hw"
+     hx-trigger="every 400ms"
+     hx-swap="innerHTML">
+  <p class="det-empty">Loading…</p>
+</div>
+{% endblock %}

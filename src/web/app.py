@@ -91,6 +91,21 @@ _last_detection_count: int = 0
 _DETECTION_COOLDOWN_S: float = 5.0
 _detection_lock = threading.Lock()
 
+# ---------------------------------------------------------------------------
+# Hardware / system state  (updated by the MJPEG generator on every frame)
+# ---------------------------------------------------------------------------
+_hw_state: dict = {
+    "pir_active": False,
+    "pir_level": 0.0,
+    "pir_triggers": 0,
+    "pir_last_triggered": "—",
+    "pipeline": "IDLE",       # IDLE | MOTION | DETECTING | DETECTED
+    "last_confidence": None,
+}
+_hw_lock = threading.Lock()
+_PIPELINE_DETECTED_HOLD_S: float = 1.5   # keep DETECTED visible for this long
+_pipeline_detected_at: float = 0.0
+
 
 def _record_detection(detections: list) -> bool:
     """
@@ -182,7 +197,9 @@ def _mjpeg_generator(confidence: float = 0.40):
     """
     Yield multipart MJPEG frames from the configured camera + detector.
     Runs inference on every frame when a detector is available.
+    Updates _hw_state on every frame to drive the /hardware dashboard.
     """
+    global _pipeline_detected_at
     boundary = b"--deerhunter_frame\r\n"
 
     while True:
@@ -197,13 +214,47 @@ def _mjpeg_generator(confidence: float = 0.40):
             time.sleep(0.2)
             continue
 
+        # --- Update PIR / motion state from VideoFeedCamera if available ---
+        pir_active = False
+        if hasattr(_camera, "motion_level"):
+            pir_active = _camera.motion_active
+            with _hw_lock:
+                _hw_state["pir_level"] = _camera.motion_level
+                _hw_state["pir_active"] = pir_active
+
         detections = []
         if _detector is not None:
+            # Mark pipeline as DETECTING (unless we're holding DETECTED)
+            with _hw_lock:
+                now = time.monotonic()
+                if (_hw_state["pipeline"] != "DETECTED" or
+                        (now - _pipeline_detected_at) >= _PIPELINE_DETECTED_HOLD_S):
+                    _hw_state["pipeline"] = "MOTION" if pir_active else "DETECTING"
+
             try:
                 detections = _detector.detect(frame, confidence_threshold=confidence)
                 _record_detection(detections)
             except Exception as e:
                 logger.warning("Stream: detection error: %s", e)
+
+            # Update pipeline state based on result
+            with _hw_lock:
+                now = time.monotonic()
+                if detections:
+                    _hw_state["pipeline"] = "DETECTED"
+                    _pipeline_detected_at = now
+                    _hw_state["last_confidence"] = round(
+                        max(d.confidence for d in detections), 2)
+                elif (_hw_state["pipeline"] == "DETECTED" and
+                        (now - _pipeline_detected_at) < _PIPELINE_DETECTED_HOLD_S):
+                    pass  # hold DETECTED state briefly so UI can catch it
+                elif pir_active:
+                    _hw_state["pipeline"] = "MOTION"
+                else:
+                    _hw_state["pipeline"] = "IDLE"
+        else:
+            with _hw_lock:
+                _hw_state["pipeline"] = "MOTION" if pir_active else "IDLE"
 
         try:
             jpeg = _frame_to_jpeg(frame, detections)
@@ -268,6 +319,13 @@ async def live_restart(auth=Depends(require_auth)):
         global _last_detection_time, _last_detection_count
         _last_detection_time = 0.0
         _last_detection_count = 0
+    with _hw_lock:
+        global _pipeline_detected_at
+        _hw_state["pir_triggers"] = 0
+        _hw_state["pir_last_triggered"] = "—"
+        _hw_state["pipeline"] = "IDLE"
+        _hw_state["last_confidence"] = None
+        _pipeline_detected_at = 0.0
     return Response(status_code=204)
 
 
@@ -383,6 +441,61 @@ async def system_status(auth=Depends(require_auth)):
 
 
 # ---------------------------------------------------------------------------
+# Hardware / system state dashboard
+# ---------------------------------------------------------------------------
+@app.get("/hardware", response_class=HTMLResponse)
+async def hardware_page(request: Request, auth=Depends(require_auth)):
+    return templates.TemplateResponse("hardware.html", {"request": request})
+
+
+@app.get("/api/hw", response_class=HTMLResponse)
+async def hw_state_partial(request: Request, auth=Depends(require_auth)):
+    """HTMX partial — live hardware state panel, polled every 400 ms."""
+    with _hw_lock:
+        state = dict(_hw_state)
+
+    # Build sparkline SVG points from camera motion history
+    sparkline = ""
+    history_len = 0
+    threshold_pct = 0
+    if _camera is not None and hasattr(_camera, "motion_history"):
+        hist = _camera.motion_history
+        history_len = len(hist)
+        # Auto-scale: top of chart = max(recent_history, threshold*4, 0.02)
+        # so the threshold line always sits in the lower quarter at minimum.
+        threshold = getattr(_camera, "motion_threshold", 0.012)
+        peak = max(hist) if hist else 0.0
+        scale = max(peak * 1.2, threshold * 4.0, 0.02)
+        W, H = 200, 48
+        if history_len > 1:
+            pts = [
+                f"{i / (history_len - 1) * W:.1f},{H - min(1.0, v / scale) * H:.1f}"
+                for i, v in enumerate(hist)
+            ]
+            sparkline = " ".join(pts)
+        # Threshold marker position as percent from bottom (within the scale)
+        threshold_pct = min(99, int(threshold / scale * 100))
+
+    # Motion VU bar height (0-100%) — same auto-scale as sparkline
+    motion_pct = 0
+    if _camera is not None and hasattr(_camera, "motion_level"):
+        threshold = getattr(_camera, "motion_threshold", 0.012)
+        hist = _camera.motion_history
+        peak = max(hist) if hist else 0.0
+        scale = max(peak * 1.2, threshold * 4.0, 0.02)
+        motion_pct = min(100, int(state["pir_level"] / scale * 100))
+
+    return templates.TemplateResponse("partials/hw_state.html", {
+        "request": request,
+        **state,
+        "sparkline": sparkline,
+        "history_len": history_len,
+        "threshold_pct": threshold_pct,
+        "motion_pct": motion_pct,
+    })
+
+
+# ---------------------------------------------------------------------------
 # Standalone entry point
 # ---------------------------------------------------------------------------
 def _parse_server_args():
@@ -394,6 +507,9 @@ def _parse_server_args():
     p.add_argument("--fake-deer", action="store_true")
     p.add_argument("--stub-detector", action="store_true")
     p.add_argument("--model", default=None)
+    p.add_argument("--motion-threshold", type=float, default=None,
+                   help="PIR motion threshold (0–1 mean frame diff). "
+                        "Auto-detected from video if not set.")
     p.add_argument("--host", default=None)
     p.add_argument("--port", type=int, default=None)
     p.add_argument("--loop", action="store_true", default=True)
@@ -414,7 +530,18 @@ def _init_camera_and_detector() -> None:
         except ValueError:
             source = video
         from src.sensors.video_feed import VideoFeedCamera
-        cam = VideoFeedCamera(source=source, loop=True, realtime=True)
+        threshold_env = os.environ.get("DH_MOTION_THRESHOLD")
+        motion_threshold = float(threshold_env) if threshold_env else 0.012
+        cam = VideoFeedCamera(source=source, loop=True, realtime=True,
+                              motion_threshold=motion_threshold)
+
+        # Register motion callback so PIR trigger count / timestamps update
+        def _motion_cb():
+            with _hw_lock:
+                _hw_state["pir_triggers"] += 1
+                _hw_state["pir_last_triggered"] = time.strftime("%H:%M:%S")
+
+        cam.register_motion_callback(_motion_cb)
         set_camera(cam)
 
     from src.detection.detector import Detector, Detection, DEER_CLASS_ID
@@ -452,6 +579,8 @@ if __name__ == "__main__":
         os.environ["DH_DETECTOR"] = "yolo_world" if args.yolo_world else "standard"
     if args.model:
         os.environ["DH_MODEL"] = args.model
+    if args.motion_threshold is not None:
+        os.environ["DH_MOTION_THRESHOLD"] = str(args.motion_threshold)
 
     try:
         uvicorn.run(
