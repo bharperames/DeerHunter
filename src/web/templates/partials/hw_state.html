@@ -1,76 +1,82 @@
 {# ─── derived variables ──────────────────────────────────────────────────── #}
-{% set pir_color   = '#6abf69' if pir_active else '#555' %}
-{% set pir_stroke  = '2.5'     if pir_active else '1' %}
-{% set pir_glow    = 'drop-shadow(0 0 4px #6abf69)' if pir_active else 'none' %}
+{% set pir_color   = '#6abf69' if pir_active else '#888' %}
+{% set pir_stroke  = '2.5'     if pir_active else '1.2' %}
 {% set pir_label   = 'MOTION'  if pir_active else 'STANDBY' %}
-{% set pir_txt_clr = '#ccc'    if pir_active else '#666' %}
 
 <div class="hw-grid">
 
   {# ── GPIO Block Diagram ─────────────────────────────────────────────────── #}
   <section class="hw-card hw-card--wide">
     <div class="hw-card-title">GPIO Interface</div>
-    <svg viewBox="0 0 480 200" class="gpio-svg" role="img" aria-label="Hardware block diagram">
+    <svg viewBox="0 0 480 210" class="gpio-svg" role="img" aria-label="Hardware block diagram">
 
       {# Pi Zero 2W board #}
-      <rect x="180" y="65" width="120" height="75" rx="6"
-            fill="#0b1f0b" stroke="#2a5a2a" stroke-width="1.5"/>
-      <text x="240" y="98"  text-anchor="middle" font-size="11" fill="#6abf69" font-weight="700">Pi Zero 2W</text>
-      <text x="240" y="112" text-anchor="middle" font-size="7.5" fill="#3d6e3d">ARM · 512MB · WiFi</text>
-      {# 40-pin header visual — two rows of dots on left edge #}
+      <rect x="180" y="80" width="120" height="75" rx="6"
+            fill="#0b1f0b" stroke="#2a6a2a" stroke-width="1.5"/>
+      <text x="240" y="113" text-anchor="middle" font-size="11" fill="#6abf69" font-weight="700">Pi Zero 2W</text>
+      <text x="240" y="127" text-anchor="middle" font-size="7.5" fill="#7aaa7a">ARM · 512MB · WiFi</text>
+      {# 40-pin header dots #}
       {% for i in range(6) %}
-      <rect x="178" y="{{ 71 + i * 10 }}" width="4" height="7" rx="1" fill="#1a4a1a" stroke="#2a6a2a" stroke-width="0.5"/>
-      <rect x="174" y="{{ 71 + i * 10 }}" width="3" height="7" rx="1" fill="#122012"/>
+      <rect x="178" y="{{ 86 + i * 10 }}" width="4" height="7" rx="1" fill="#1a4a1a" stroke="#2a6a2a" stroke-width="0.5"/>
+      <rect x="174" y="{{ 86 + i * 10 }}" width="3" height="7" rx="1" fill="#122012"/>
       {% endfor %}
-      {# CSI ribbon connector (top of board) #}
-      <rect x="212" y="62" width="36" height="5" rx="1" fill="#222" stroke="#444" stroke-width="0.5"/>
-      <text x="230" y="60" text-anchor="middle" font-size="6.5" fill="#4499ff">CSI</text>
+      {# CSI ribbon connector on board top #}
+      <rect x="212" y="77" width="36" height="5" rx="1" fill="#222" stroke="#444" stroke-width="0.5"/>
+      <text x="230" y="75" text-anchor="middle" font-size="6.5" fill="#6699cc">CSI</text>
 
-      {# GPIO 17 pin indicator dot on board edge #}
-      <circle cx="180" cy="83" r="4" fill="{{ pir_color }}"
-              style="filter: {{ pir_glow }};"/>
+      {# GPIO 17 pin indicator dot #}
+      <circle cx="180" cy="98" r="4" fill="{{ pir_color }}"
+              {% if pir_active %}style="filter:drop-shadow(0 0 4px #6abf69);"{% endif %}/>
 
-      {# ── PIR sensor (left) ──────────────────────────────────────────── #}
-      <line x1="90" y1="83" x2="176" y2="83"
+      {# ── Camera v3 NoIR (top) — shows live snapshot thumbnail ──────────── #}
+      <rect x="155" y="5" width="150" height="66" rx="5"
+            fill="#0f1520" stroke="#4466aa" stroke-width="1.5"/>
+      {# Live snapshot inside camera box via foreignObject #}
+      <foreignObject x="157" y="7" width="146" height="48">
+        <div xmlns="http://www.w3.org/1999/xhtml"
+             style="width:100%;height:100%;overflow:hidden;border-radius:3px;background:#000;">
+          <img src="/snapshot/current?t={{ ts }}"
+               style="width:100%;height:100%;object-fit:cover;display:block;"
+               alt="camera feed"/>
+        </div>
+      </foreignObject>
+      <text x="230" y="63" text-anchor="middle" font-size="8" fill="#aaccff" font-weight="600">Camera v3 NoIR</text>
+      <text x="230" y="73" text-anchor="middle" font-size="6.5" fill="#6699cc">12 MP · No IR-cut · CSI</text>
+      {# CSI line from camera to Pi #}
+      <line x1="230" y1="71" x2="230" y2="80" stroke="#4499ff" stroke-width="1.5"/>
+
+      {# ── PIR sensor (left) ──────────────────────────────────────────────── #}
+      <line x1="90" y1="98" x2="176" y2="98"
             stroke="{{ pir_color }}" stroke-width="{{ pir_stroke }}"/>
-      <text x="133" y="78" text-anchor="middle" font-size="6.5" fill="{{ pir_color }}">GPIO 17</text>
-      {# Signal pulse marks when active #}
+      <text x="133" y="93" text-anchor="middle" font-size="6.5" fill="{{ pir_color }}">GPIO 17</text>
       {% if pir_active %}
-      <polyline points="105,83 110,73 115,93 120,73 125,93 130,83"
-                fill="none" stroke="{{ pir_color }}" stroke-width="1.2" opacity="0.7"/>
+      <polyline points="100,98 105,88 110,108 115,88 120,108 125,98"
+                fill="none" stroke="{{ pir_color }}" stroke-width="1.2" opacity="0.8"/>
       {% endif %}
-      {# PIR box #}
-      <rect x="8" y="68" width="80" height="30" rx="5"
-            fill="#111" stroke="{{ '#3a7a3a' if pir_active else '#2a2a2a' }}" stroke-width="1.2"/>
-      <text x="48" y="82" text-anchor="middle" font-size="8.5"
-            fill="{{ pir_txt_clr }}" font-weight="600">HC-SR501 PIR</text>
-      <text x="48" y="93" text-anchor="middle" font-size="7.5" fill="{{ pir_color }}">{{ pir_label }}</text>
+      <rect x="8" y="83" width="80" height="30" rx="5"
+            fill="#111" stroke="{{ '#3a8a3a' if pir_active else '#3a3a3a' }}" stroke-width="1.2"/>
+      <text x="48" y="96" text-anchor="middle" font-size="8.5"
+            fill="{{ '#e0e0e0' if pir_active else '#aaa' }}" font-weight="600">HC-SR501 PIR</text>
+      <text x="48" y="107" text-anchor="middle" font-size="7.5" fill="{{ pir_color }}">{{ pir_label }}</text>
 
-      {# ── Camera (top) ───────────────────────────────────────────────── #}
-      <line x1="230" y1="38" x2="230" y2="62" stroke="#4499ff" stroke-width="1.5"/>
-      <rect x="163" y="8" width="134" height="28" rx="5"
-            fill="#111525" stroke="#334488" stroke-width="1.2"/>
-      <text x="230" y="23" text-anchor="middle" font-size="8.5" fill="#aaccff" font-weight="600">Camera v3 NoIR</text>
-      <text x="230" y="33" text-anchor="middle" font-size="7" fill="#4499ff">12MP · No IR-cut · STREAMING</text>
+      {# ── Speaker / Amp (right) ──────────────────────────────────────────── #}
+      <circle cx="300" cy="113" r="3.5" fill="#666" stroke="#444"/>
+      <line x1="304" y1="113" x2="370" y2="113" stroke="#666" stroke-width="1"/>
+      <text x="337" y="108" text-anchor="middle" font-size="6.5" fill="#888">I2S (GPIO 18/19/21)</text>
+      <rect x="372" y="98" width="86" height="30" rx="5"
+            fill="#111" stroke="#3a3a3a" stroke-width="1"/>
+      <text x="415" y="111" text-anchor="middle" font-size="8" fill="#bbb" font-weight="500">MAX98357A</text>
+      <text x="415" y="122" text-anchor="middle" font-size="7" fill="#888">I2S Amp · IDLE</text>
 
-      {# ── Speaker / Amp (right) ──────────────────────────────────────── #}
-      <circle cx="300" cy="98" r="3.5" fill="#555" stroke="#333"/>
-      <line x1="304" y1="98" x2="370" y2="98" stroke="#555" stroke-width="1"/>
-      <text x="337" y="93" text-anchor="middle" font-size="6.5" fill="#555">I2S (GPIO 18/19/21)</text>
-      <rect x="372" y="83" width="86" height="30" rx="5"
-            fill="#111" stroke="#2a2a2a" stroke-width="1"/>
-      <text x="415" y="97" text-anchor="middle" font-size="8" fill="#666" font-weight="500">MAX98357A</text>
-      <text x="415" y="108" text-anchor="middle" font-size="7" fill="#555">I2S Amp · IDLE</text>
+      {# ── Power supply (bottom-left) ─────────────────────────────────────── #}
+      <line x1="195" y1="155" x2="120" y2="183" stroke="#cc5533" stroke-width="1" stroke-dasharray="5,3"/>
+      <text x="88" y="191" text-anchor="middle" font-size="7.5" fill="#cc7755" font-weight="500">5V Boost Converter</text>
+      <text x="88" y="202" text-anchor="middle" font-size="7" fill="#aa5533">Battery → Solar</text>
 
-      {# ── Power supply (bottom-left) ─────────────────────────────────── #}
-      <line x1="195" y1="140" x2="120" y2="168" stroke="#cc5533" stroke-width="1" stroke-dasharray="5,3"/>
-      <text x="90" y="176" text-anchor="middle" font-size="7.5" fill="#cc5533" font-weight="500">5V Boost Converter</text>
-      <text x="90" y="187" text-anchor="middle" font-size="7" fill="#773322">Battery → Solar</text>
-
-      {# ── WiFi / ntfy (bottom-right) ─────────────────────────────────── #}
-      <line x1="270" y1="140" x2="345" y2="168" stroke="#5599cc" stroke-width="1" stroke-dasharray="4,3"/>
-      <text x="375" y="176" text-anchor="middle" font-size="7.5" fill="#5599cc" font-weight="500">WiFi 2.4 GHz</text>
-      <text x="375" y="187" text-anchor="middle" font-size="7" fill="#3366aa">ntfy.sh → Phone</text>
+      {# ── WiFi / ntfy (bottom-right) ─────────────────────────────────────── #}
+      <line x1="270" y1="155" x2="345" y2="183" stroke="#5599cc" stroke-width="1" stroke-dasharray="4,3"/>
+      <text x="375" y="191" text-anchor="middle" font-size="7.5" fill="#6699cc" font-weight="500">WiFi 2.4 GHz</text>
+      <text x="375" y="202" text-anchor="middle" font-size="7" fill="#4477aa">ntfy.sh → Phone</text>
 
     </svg>
 
@@ -80,17 +86,17 @@
         <span class="pin-num">11</span>
         <span class="pin-sig">GPIO 17</span>
         <span class="pin-role">PIR signal</span>
-        <span class="pin-state">{{ 'HIGH' if pir_active else 'LOW' }}</span>
+        <span class="pin-state {{ 'pin-state--hi' if pir_active else '' }}">{{ 'HIGH' if pir_active else 'LOW' }}</span>
         <span class="pin-volt">{{ '3.3 V' if pir_active else '0 V' }}</span>
       </div>
-      <div class="pin-row pin-row--static">
+      <div class="pin-row">
         <span class="pin-num">CSI</span>
         <span class="pin-sig">Camera</span>
         <span class="pin-role">Video stream</span>
         <span class="pin-state pin-state--hi">ACTIVE</span>
         <span class="pin-volt">—</span>
       </div>
-      <div class="pin-row pin-row--static">
+      <div class="pin-row">
         <span class="pin-num">12/35/40</span>
         <span class="pin-sig">I2S</span>
         <span class="pin-role">Audio out</span>
@@ -111,12 +117,11 @@
     <div class="motion-row">
       {# VU meter #}
       <div class="vu-wrap">
-        <div class="vu-meter" title="Motion level: {{ '%.3f'|format(pir_level) }}">
+        <div class="vu-meter">
           <div class="vu-bar {{ 'vu-bar--active' if pir_active else '' }}"
                style="height: {{ motion_pct }}%"></div>
           {% if threshold_pct > 0 %}
-          <div class="vu-threshold" style="bottom: {{ threshold_pct }}%"
-               title="PIR trigger threshold"></div>
+          <div class="vu-threshold" style="bottom: {{ threshold_pct }}%"></div>
           {% endif %}
         </div>
         <div class="vu-pct">{{ motion_pct }}%</div>
@@ -124,44 +129,37 @@
 
       {# Sparkline #}
       <div class="sparkline-wrap">
-        <div class="sparkline-label-top">raw motion ({{ history_len }} frames)</div>
+        <div class="sparkline-label-top">raw frame delta ({{ history_len }} samples)</div>
         <svg viewBox="0 0 200 48" preserveAspectRatio="none" class="sparkline-svg">
-          {# Background grid lines #}
-          <line x1="0" y1="24" x2="200" y2="24" stroke="#2a2a2a" stroke-width="0.5"/>
-          <line x1="0" y1="12" x2="200" y2="12" stroke="#2a2a2a" stroke-width="0.5"/>
-          <line x1="0" y1="36" x2="200" y2="36" stroke="#2a2a2a" stroke-width="0.5"/>
+          <line x1="0" y1="16" x2="200" y2="16" stroke="#2a2a2a" stroke-width="0.5"/>
+          <line x1="0" y1="32" x2="200" y2="32" stroke="#2a2a2a" stroke-width="0.5"/>
           {% if sparkline %}
-          {# Fill area under curve #}
           <polygon points="{{ sparkline }} 200,48 0,48"
                    fill="var(--accent)" opacity="0.08"/>
-          {# Signal line #}
           <polyline points="{{ sparkline }}"
                     fill="none" stroke="var(--accent)"
                     stroke-width="1.5" stroke-linejoin="round" stroke-linecap="round"/>
-          {# Threshold line #}
           {% if threshold_pct > 0 %}
           <line x1="0" y1="{{ 48 - threshold_pct * 0.48 }}"
                 x2="200" y2="{{ 48 - threshold_pct * 0.48 }}"
-                stroke="#cf6679" stroke-width="0.8" stroke-dasharray="4,3" opacity="0.7"/>
+                stroke="#cf6679" stroke-width="1" stroke-dasharray="4,3" opacity="0.8"/>
           {% endif %}
           {% else %}
-          <text x="100" y="28" text-anchor="middle" font-size="8" fill="#444">no data yet</text>
+          <text x="100" y="28" text-anchor="middle" font-size="8" fill="#666">no data yet</text>
           {% endif %}
         </svg>
         <div class="sparkline-legend">
-          <span class="legend-dot" style="background:var(--accent)"></span> motion
-          <span class="legend-dot" style="background:#cf6679"></span> threshold
+          <span class="legend-dot" style="background:var(--accent)"></span><span style="color:#ccc"> motion</span>
+          &nbsp;
+          <span class="legend-dot" style="background:#cf6679"></span><span style="color:#ccc"> threshold</span>
         </div>
       </div>
     </div>
 
     <dl class="hw-stats hw-stats--compact">
-      <dt>Raw level</dt>
-      <dd>{{ '%.4f'|format(pir_level) }}</dd>
-      <dt>Triggers</dt>
-      <dd>{{ pir_triggers }}</dd>
-      <dt>Last trigger</dt>
-      <dd>{{ pir_last_triggered }}</dd>
+      <dt>Raw level</dt><dd>{{ '%.4f'|format(pir_level) }}</dd>
+      <dt>Triggers</dt><dd>{{ pir_triggers }}</dd>
+      <dt>Last trigger</dt><dd>{{ pir_last_triggered }}</dd>
     </dl>
   </section>
 
@@ -182,15 +180,13 @@
           <span class="pipe-icon">{{ icon }}</span>
           <span class="pipe-label">{{ label }}</span>
         </div>
-        {% if not loop.last %}
-        <div class="pipe-arrow-wrap"><div class="pipe-arrow">›</div></div>
-        {% endif %}
+        {% if not loop.last %}<div class="pipe-arrow-wrap"><div class="pipe-arrow">›</div></div>{% endif %}
       </div>
       {% endfor %}
     </div>
 
     <dl class="hw-stats">
-      <dt>Current state</dt>
+      <dt>State</dt>
       <dd class="{{ 'stat-detected' if pipeline == 'DETECTED' else '' }}">{{ pipeline }}</dd>
       <dt>Last confidence</dt>
       <dd>{% if last_confidence %}{{ '%.0f%%'|format(last_confidence * 100) }}{% else %}—{% endif %}</dd>
@@ -198,13 +194,13 @@
 
     <div class="pipeline-desc">
       {% if pipeline == 'IDLE' %}
-        <span class="pdesc">Waiting for motion. PIR in standby (~50 µA).</span>
+        <span class="pdesc">Waiting for motion — PIR in standby (~50 µA).</span>
       {% elif pipeline == 'MOTION' %}
         <span class="pdesc pdesc--motion">PIR HIGH — frame delta above threshold. Preparing burst capture.</span>
       {% elif pipeline == 'DETECTING' %}
         <span class="pdesc pdesc--detecting">Running YOLOWorld inference on captured frames…</span>
       {% elif pipeline == 'DETECTED' %}
-        <span class="pdesc pdesc--detected">Deer confirmed ({{ '%.0f%%'|format(last_confidence * 100) if last_confidence else '?' }} conf). Dispatching actions.</span>
+        <span class="pdesc pdesc--detected">Deer confirmed — {{ '%.0f%%'|format(last_confidence * 100) if last_confidence else '?' }} confidence. Dispatching actions.</span>
       {% endif %}
     </div>
   </section>

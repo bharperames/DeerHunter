@@ -198,6 +198,16 @@ img.snapshot { max-width: 720px; width: 100%; border-radius: 6px; border: 1px so
 }
 
 /* GPIO pin strip table */
+/* Camera feed label in hardware page */
+.hw-cam-label {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 0.82rem;
+  color: #ccc;
+  margin-bottom: 0.4rem;
+}
+
 .pin-strip {
   display: flex;
   flex-direction: column;
@@ -218,28 +228,25 @@ img.snapshot { max-width: 720px; width: 100%; border-radius: 6px; border: 1px so
 .pin-row--active {
   background: rgba(106,191,105,0.07);
 }
-.pin-row--static {
-  opacity: 0.6;
-}
 .pin-num {
   font-family: monospace;
   font-size: 0.72rem;
-  color: #555;
+  color: #aaa;
   font-weight: 600;
 }
 .pin-sig {
   font-family: monospace;
   font-size: 0.78rem;
-  color: #aaa;
+  color: #ccc;
 }
 .pin-role {
-  color: #666;
+  color: #bbb;
 }
 .pin-state {
   font-family: monospace;
   font-size: 0.72rem;
   font-weight: 700;
-  color: #555;
+  color: #999;
   text-align: right;
   min-width: 44px;
 }
@@ -248,7 +255,7 @@ img.snapshot { max-width: 720px; width: 100%; border-radius: 6px; border: 1px so
 .pin-volt {
   font-family: monospace;
   font-size: 0.7rem;
-  color: #555;
+  color: #aaa;
   text-align: right;
   min-width: 36px;
 }
@@ -297,7 +304,7 @@ img.snapshot { max-width: 720px; width: 100%; border-radius: 6px; border: 1px so
 .vu-pct {
   font-size: 0.72rem;
   font-family: monospace;
-  color: #888;
+  color: #ccc;
   text-align: center;
 }
 
@@ -310,7 +317,7 @@ img.snapshot { max-width: 720px; width: 100%; border-radius: 6px; border: 1px so
 }
 .sparkline-label-top {
   font-size: 0.7rem;
-  color: #666;
+  color: #bbb;
 }
 .sparkline-svg {
   width: 100%;
@@ -322,7 +329,7 @@ img.snapshot { max-width: 720px; width: 100%; border-radius: 6px; border: 1px so
 }
 .sparkline-legend {
   font-size: 0.68rem;
-  color: #666;
+  color: #ccc;
   display: flex;
   gap: 0.75rem;
   align-items: center;
@@ -344,7 +351,7 @@ img.snapshot { max-width: 720px; width: 100%; border-radius: 6px; border: 1px so
   font-size: 0.8rem;
   margin-top: 0.75rem;
 }
-.hw-stats dt { color: #666; }
+.hw-stats dt { color: #aaa; }
 .hw-stats dd { color: var(--text); font-variant-numeric: tabular-nums; }
 .hw-stats--compact { margin-top: 0.5rem; }
 .stat-detected { color: var(--accent); font-weight: 700; }
@@ -368,14 +375,12 @@ img.snapshot { max-width: 720px; width: 100%; border-radius: 6px; border: 1px so
   gap: 0.15rem;
   padding: 0.4rem 0.6rem;
   border-radius: 6px;
-  border: 1px solid var(--border);
-  background: #111;
+  border: 1px solid #3a3a3a;
+  background: #151515;
   min-width: 68px;
-  opacity: 0.4;
-  transition: opacity 0.3s, border-color 0.3s;
+  transition: border-color 0.3s, background 0.3s;
 }
 .pipe-step--active {
-  opacity: 1;
   border-color: var(--accent);
   background: rgba(106,191,105,0.08);
 }
@@ -385,7 +390,7 @@ img.snapshot { max-width: 720px; width: 100%; border-radius: 6px; border: 1px so
 }
 .pipe-icon {
   font-size: 1rem;
-  color: #555;
+  color: #888;
 }
 .pipe-step--active .pipe-icon { color: var(--accent); }
 .pipe-step--detected .pipe-icon { color: #e07070; }
@@ -394,13 +399,13 @@ img.snapshot { max-width: 720px; width: 100%; border-radius: 6px; border: 1px so
   font-weight: 700;
   text-transform: uppercase;
   letter-spacing: 0.05em;
-  color: #555;
+  color: #999;
 }
 .pipe-step--active .pipe-label { color: var(--accent); }
 .pipe-step--detected .pipe-label { color: #e07070; }
 .pipe-arrow-wrap { padding: 0 0.2rem; }
 .pipe-arrow {
-  color: #444;
+  color: #666;
   font-size: 1.2rem;
   font-weight: 300;
 }
@@ -413,7 +418,7 @@ img.snapshot { max-width: 720px; width: 100%; border-radius: 6px; border: 1px so
 }
 .pdesc {
   font-size: 0.78rem;
-  color: #666;
+  color: #bbb;
   font-style: italic;
 }
 .pdesc--motion    { color: #e0b060; }

@@ -2,15 +2,58 @@
 {% block title %}Hardware — DeerHunter{% endblock %}
 {% block content %}
 <h1>Hardware Monitor</h1>
-<p style="color:#888;font-size:0.85rem;margin-bottom:1.2rem;">
-  Live system state — GPIO signals, motion level, and detection pipeline.
-  Updates every 400 ms.
-</p>
 
+{# ── Top section: camera feed + trigger events (like live page) ── #}
+<div class="live-layout">
+
+  <div class="live-left">
+    <div class="hw-cam-label">
+      <span class="dot dot-live"></span>
+      <span>Pi Camera v3 NoIR — CSI live feed · YOLOWorld inference</span>
+    </div>
+    <div class="frame-box">
+      <img id="hw-frame" src="/stream" alt="Camera feed" class="live-frame">
+    </div>
+    <div id="status-bar">
+      <span>Detections overlaid in red</span>
+      <button class="btn-restart"
+              hx-post="/live/restart"
+              hx-swap="none"
+              onclick="restartHwStream()">&#8635; Restart</button>
+    </div>
+  </div>
+
+  <aside class="det-panel">
+    <div class="det-header">
+      <span>Trigger Events</span>
+      <span class="det-cooldown">5 s cooldown</span>
+    </div>
+    <div id="det-list"
+         hx-get="/live/detections"
+         hx-trigger="every 2s"
+         hx-swap="innerHTML">
+      <p class="det-empty">No detections yet</p>
+    </div>
+  </aside>
+
+</div>
+
+{# ── Bottom section: GPIO + motion + pipeline (polled every 400 ms) ── #}
 <div id="hw-panel"
      hx-get="/api/hw"
      hx-trigger="every 400ms"
-     hx-swap="innerHTML">
-  <p class="det-empty">Loading…</p>
+     hx-swap="innerHTML"
+     style="margin-top:1rem;">
+  <p class="det-empty">Loading hardware state…</p>
 </div>
+
+<script>
+  const hwFrame = document.getElementById('hw-frame');
+  hwFrame.onerror = function() {
+    setTimeout(function() { hwFrame.src = '/stream?' + Date.now(); }, 2000);
+  };
+  function restartHwStream() {
+    setTimeout(function() { hwFrame.src = '/stream?' + Date.now(); }, 300);
+  }
+</script>
 {% endblock %}

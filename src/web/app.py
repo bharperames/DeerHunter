@@ -106,6 +106,14 @@ _hw_lock = threading.Lock()
 _PIPELINE_DETECTED_HOLD_S: float = 1.5   # keep DETECTED visible for this long
 _pipeline_detected_at: float = 0.0
 
+# ---------------------------------------------------------------------------
+# Shared frame cache — one processor thread runs inference; all MJPEG clients
+# read the cached JPEG so multiple open tabs don't each trigger detection.
+# ---------------------------------------------------------------------------
+_frame_cache: dict = {"jpeg": b"", "seq": 0}
+_frame_cache_lock = threading.Lock()
+_processor_thread: Optional[threading.Thread] = None
+
 
 def _record_detection(detections: list) -> bool:
     """
@@ -193,28 +201,25 @@ def _frame_to_jpeg(frame: np.ndarray,
     return buf.getvalue()
 
 
-def _mjpeg_generator(confidence: float = 0.40):
+def _processor_loop(confidence: float = 0.40) -> None:
     """
-    Yield multipart MJPEG frames from the configured camera + detector.
-    Runs inference on every frame when a detector is available.
-    Updates _hw_state on every frame to drive the /hardware dashboard.
+    Single background thread: read camera, run detection, encode JPEG, cache.
+    All MJPEG clients share this one cached frame — no per-client inference.
     """
     global _pipeline_detected_at
-    boundary = b"--deerhunter_frame\r\n"
-
     while True:
         if _camera is None:
-            time.sleep(0.5)
+            time.sleep(0.2)
             continue
 
         try:
             frame = _camera.capture_frame()
         except Exception as e:
-            logger.warning("Stream: capture error: %s", e)
+            logger.warning("Processor: capture error: %s", e)
             time.sleep(0.2)
             continue
 
-        # --- Update PIR / motion state from VideoFeedCamera if available ---
+        # Update PIR / motion state
         pir_active = False
         if hasattr(_camera, "motion_level"):
             pir_active = _camera.motion_active
@@ -224,20 +229,16 @@ def _mjpeg_generator(confidence: float = 0.40):
 
         detections = []
         if _detector is not None:
-            # Mark pipeline as DETECTING (unless we're holding DETECTED)
             with _hw_lock:
                 now = time.monotonic()
                 if (_hw_state["pipeline"] != "DETECTED" or
                         (now - _pipeline_detected_at) >= _PIPELINE_DETECTED_HOLD_S):
                     _hw_state["pipeline"] = "MOTION" if pir_active else "DETECTING"
-
             try:
                 detections = _detector.detect(frame, confidence_threshold=confidence)
                 _record_detection(detections)
             except Exception as e:
-                logger.warning("Stream: detection error: %s", e)
-
-            # Update pipeline state based on result
+                logger.warning("Processor: detection error: %s", e)
             with _hw_lock:
                 now = time.monotonic()
                 if detections:
@@ -247,7 +248,7 @@ def _mjpeg_generator(confidence: float = 0.40):
                         max(d.confidence for d in detections), 2)
                 elif (_hw_state["pipeline"] == "DETECTED" and
                         (now - _pipeline_detected_at) < _PIPELINE_DETECTED_HOLD_S):
-                    pass  # hold DETECTED state briefly so UI can catch it
+                    pass
                 elif pir_active:
                     _hw_state["pipeline"] = "MOTION"
                 else:
@@ -259,16 +260,50 @@ def _mjpeg_generator(confidence: float = 0.40):
         try:
             jpeg = _frame_to_jpeg(frame, detections)
         except Exception as e:
-            logger.warning("Stream: encode error: %s", e)
+            logger.warning("Processor: encode error: %s", e)
             continue
 
-        yield (
-            boundary
-            + b"Content-Type: image/jpeg\r\n"
-            + f"Content-Length: {len(jpeg)}\r\n\r\n".encode()
-            + jpeg
-            + b"\r\n"
-        )
+        with _frame_cache_lock:
+            _frame_cache["jpeg"] = jpeg
+            _frame_cache["seq"] += 1
+
+
+def _start_processor(confidence: float = 0.40) -> None:
+    """Start the frame processor thread if it is not already running."""
+    global _processor_thread
+    if _processor_thread and _processor_thread.is_alive():
+        return
+    t = threading.Thread(
+        target=_processor_loop, args=(confidence,),
+        daemon=True, name="dh-frame-processor",
+    )
+    _processor_thread = t
+    t.start()
+    logger.info("Frame processor started")
+
+
+def _mjpeg_generator(confidence: float = 0.40):
+    """
+    Broadcast MJPEG to clients by reading the shared frame cache.
+    No per-client inference — all clients share one processed frame.
+    """
+    boundary = b"--deerhunter_frame\r\n"
+    last_seq = -1
+    while True:
+        with _frame_cache_lock:
+            seq = _frame_cache["seq"]
+            jpeg = _frame_cache["jpeg"]
+        if jpeg and seq != last_seq:
+            last_seq = seq
+            yield (
+                boundary
+                + b"Content-Type: image/jpeg\r\n"
+                + f"Content-Length: {len(jpeg)}\r\n\r\n".encode()
+                + jpeg
+                + b"\r\n"
+            )
+        else:
+            time.sleep(0.01)
 
 
 # ---------------------------------------------------------------------------
@@ -371,6 +406,16 @@ async def serve_image(filename: str, auth=Depends(require_auth)):
     if not path.exists() or path.suffix.lower() not in {".jpg", ".jpeg", ".png"}:
         raise HTTPException(404)
     return StreamingResponse(open(path, "rb"), media_type="image/jpeg")
+
+
+@app.get("/snapshot/current")
+async def snapshot_current(auth=Depends(require_auth)):
+    """Return the latest processed frame JPEG from the shared cache — no extra inference."""
+    with _frame_cache_lock:
+        jpeg = _frame_cache.get("jpeg")
+    if not jpeg:
+        raise HTTPException(503, "No frame available yet")
+    return Response(content=jpeg, media_type="image/jpeg")
 
 
 @app.get("/snapshot", response_class=HTMLResponse)
@@ -492,6 +537,7 @@ async def hw_state_partial(request: Request, auth=Depends(require_auth)):
         "history_len": history_len,
         "threshold_pct": threshold_pct,
         "motion_pct": motion_pct,
+        "ts": int(time.time()),
     })
 
 
@@ -555,6 +601,7 @@ def _init_camera_and_detector() -> None:
         model = os.environ.get("DH_MODEL", "")
         det = Detector(model_path=model, yolo_world=(mode == "yolo_world"))
     set_detector(det)
+    _start_processor()
 
 
 if __name__ == "__main__":
