@@ -8,31 +8,14 @@
   {# ── GPIO Block Diagram ─────────────────────────────────────────────────── #}
   <section class="hw-card hw-card--wide">
     <div class="hw-card-title">GPIO Interface</div>
-    <svg viewBox="0 0 480 210" class="gpio-svg" role="img" aria-label="Hardware block diagram">
+    <svg viewBox="0 0 480 305" class="gpio-svg" role="img" aria-label="Hardware block diagram">
 
-      {# Pi Zero 2W board #}
-      <rect x="180" y="80" width="120" height="75" rx="6"
-            fill="#0b1f0b" stroke="#2a6a2a" stroke-width="1.5"/>
-      <text x="240" y="113" text-anchor="middle" font-size="11" fill="#6abf69" font-weight="700">Pi Zero 2W</text>
-      <text x="240" y="127" text-anchor="middle" font-size="7.5" fill="#7aaa7a">ARM · 512MB · WiFi</text>
-      {# 40-pin header dots #}
-      {% for i in range(6) %}
-      <rect x="178" y="{{ 86 + i * 10 }}" width="4" height="7" rx="1" fill="#1a4a1a" stroke="#2a6a2a" stroke-width="0.5"/>
-      <rect x="174" y="{{ 86 + i * 10 }}" width="3" height="7" rx="1" fill="#122012"/>
-      {% endfor %}
-      {# CSI ribbon connector on board top #}
-      <rect x="212" y="77" width="36" height="5" rx="1" fill="#222" stroke="#444" stroke-width="0.5"/>
-      <text x="230" y="75" text-anchor="middle" font-size="6.5" fill="#6699cc">CSI</text>
-
-      {# GPIO 17 pin indicator dot #}
-      <circle cx="180" cy="98" r="4" fill="{{ pir_color }}"
-              {% if pir_active %}style="filter:drop-shadow(0 0 4px #6abf69);"{% endif %}/>
-
-      {# ── Camera v3 NoIR (top) — shows live snapshot thumbnail ──────────── #}
-      <rect x="155" y="5" width="150" height="66" rx="5"
+      {# ── Camera v3 NoIR (top) — portrait thumbnail ─────────────────────── #}
+      {# Box: w=100, h=170 giving roughly the video's portrait aspect ratio   #}
+      <rect x="170" y="4" width="100" height="170" rx="5"
             fill="#0f1520" stroke="#4466aa" stroke-width="1.5"/>
-      {# Live snapshot inside camera box via foreignObject #}
-      <foreignObject x="157" y="7" width="146" height="48">
+      {# Live snapshot — portrait container matching 674×1194 video ratio     #}
+      <foreignObject x="172" y="6" width="96" height="148">
         <div xmlns="http://www.w3.org/1999/xhtml"
              style="width:100%;height:100%;overflow:hidden;border-radius:3px;background:#000;">
           <img src="/snapshot/current?t={{ ts }}"
@@ -40,43 +23,67 @@
                alt="camera feed"/>
         </div>
       </foreignObject>
-      <text x="230" y="63" text-anchor="middle" font-size="8" fill="#aaccff" font-weight="600">Camera v3 NoIR</text>
-      <text x="230" y="73" text-anchor="middle" font-size="6.5" fill="#6699cc">12 MP · No IR-cut · CSI</text>
-      {# CSI line from camera to Pi #}
-      <line x1="230" y1="71" x2="230" y2="80" stroke="#4499ff" stroke-width="1.5"/>
+      <text x="220" y="163" text-anchor="middle" font-size="8" fill="#aaccff" font-weight="700">Pi Camera v3 NoIR</text>
+      <text x="220" y="172" text-anchor="middle" font-size="6.5" fill="#6699cc">12 MP · No IR-cut  SC0872</text>
+      {# CSI line from camera bottom to Pi top #}
+      <line x1="220" y1="174" x2="220" y2="185" stroke="#4499ff" stroke-width="1.5"/>
+      <text x="224" y="181" font-size="6" fill="#4499ff">CSI</text>
+
+      {# ── Pi Zero 2W board (centre) ──────────────────────────────────────── #}
+      <rect x="180" y="185" width="120" height="80" rx="6"
+            fill="#0b1f0b" stroke="#2a6a2a" stroke-width="1.5"/>
+      <text x="240" y="218" text-anchor="middle" font-size="11" fill="#6abf69" font-weight="700">Pi Zero 2W</text>
+      <text x="240" y="231" text-anchor="middle" font-size="7" fill="#7aaa7a">Main Computer · SC0510</text>
+      <text x="240" y="242" text-anchor="middle" font-size="6.5" fill="#5a8a5a">ARM · 512MB · 2.4GHz WiFi</text>
+      {# 40-pin header dots on left edge #}
+      {% for i in range(6) %}
+      <rect x="178" y="{{ 191 + i * 10 }}" width="4" height="7" rx="1" fill="#1a4a1a" stroke="#2a6a2a" stroke-width="0.5"/>
+      <rect x="174" y="{{ 191 + i * 10 }}" width="3" height="7" rx="1" fill="#122012"/>
+      {% endfor %}
+      {# CSI connector (top of board) #}
+      <rect x="204" y="182" width="32" height="5" rx="1" fill="#222" stroke="#444" stroke-width="0.5"/>
+
+      {# GPIO 17 pin indicator dot #}
+      <circle cx="180" cy="203" r="4.5" fill="{{ pir_color }}"
+              {% if pir_active %}style="filter:drop-shadow(0 0 5px #6abf69);"{% endif %}/>
 
       {# ── PIR sensor (left) ──────────────────────────────────────────────── #}
-      <line x1="90" y1="98" x2="176" y2="98"
+      <line x1="90" y1="203" x2="175" y2="203"
             stroke="{{ pir_color }}" stroke-width="{{ pir_stroke }}"/>
-      <text x="133" y="93" text-anchor="middle" font-size="6.5" fill="{{ pir_color }}">GPIO 17</text>
+      <text x="132" y="198" text-anchor="middle" font-size="6.5" fill="{{ pir_color }}">GPIO 17</text>
       {% if pir_active %}
-      <polyline points="100,98 105,88 110,108 115,88 120,108 125,98"
+      <polyline points="98,203 103,193 108,213 113,193 118,213 123,203"
                 fill="none" stroke="{{ pir_color }}" stroke-width="1.2" opacity="0.8"/>
       {% endif %}
-      <rect x="8" y="83" width="80" height="30" rx="5"
+      <rect x="4" y="183" width="84" height="44" rx="5"
             fill="#111" stroke="{{ '#3a8a3a' if pir_active else '#3a3a3a' }}" stroke-width="1.2"/>
-      <text x="48" y="96" text-anchor="middle" font-size="8.5"
-            fill="{{ '#e0e0e0' if pir_active else '#aaa' }}" font-weight="600">HC-SR501 PIR</text>
-      <text x="48" y="107" text-anchor="middle" font-size="7.5" fill="{{ pir_color }}">{{ pir_label }}</text>
+      <text x="46" y="197" text-anchor="middle" font-size="8" fill="{{ '#e0e0e0' if pir_active else '#aaa' }}" font-weight="700">Motion Detector</text>
+      <text x="46" y="207" text-anchor="middle" font-size="7" fill="{{ '#e0e0e0' if pir_active else '#999' }}">HC-SR501 PIR</text>
+      <text x="46" y="217" text-anchor="middle" font-size="7" fill="{{ pir_color }}">{{ pir_label }}</text>
+      <text x="46" y="226" text-anchor="middle" font-size="6" fill="#777">GPIO 17 (BCM) · ~50µA</text>
 
       {# ── Speaker / Amp (right) ──────────────────────────────────────────── #}
-      <circle cx="300" cy="113" r="3.5" fill="#666" stroke="#444"/>
-      <line x1="304" y1="113" x2="370" y2="113" stroke="#666" stroke-width="1"/>
-      <text x="337" y="108" text-anchor="middle" font-size="6.5" fill="#888">I2S (GPIO 18/19/21)</text>
-      <rect x="372" y="98" width="86" height="30" rx="5"
+      <circle cx="300" cy="220" r="3.5" fill="#666" stroke="#444"/>
+      <line x1="304" y1="220" x2="368" y2="220" stroke="#666" stroke-width="1"/>
+      <text x="336" y="215" text-anchor="middle" font-size="6.5" fill="#888">I2S (GPIO 18/19/21)</text>
+      <rect x="370" y="200" width="106" height="44" rx="5"
             fill="#111" stroke="#3a3a3a" stroke-width="1"/>
-      <text x="415" y="111" text-anchor="middle" font-size="8" fill="#bbb" font-weight="500">MAX98357A</text>
-      <text x="415" y="122" text-anchor="middle" font-size="7" fill="#888">I2S Amp · IDLE</text>
+      <text x="423" y="214" text-anchor="middle" font-size="8" fill="#bbb" font-weight="700">I2S Amplifier</text>
+      <text x="423" y="224" text-anchor="middle" font-size="7" fill="#aaa">MAX98357A · Adafruit #3006</text>
+      <text x="423" y="234" text-anchor="middle" font-size="7" fill="#777">3W Class-D · IDLE</text>
+      <text x="423" y="243" text-anchor="middle" font-size="6" fill="#666">→ 3W 8Ω Speaker</text>
 
       {# ── Power supply (bottom-left) ─────────────────────────────────────── #}
-      <line x1="195" y1="155" x2="120" y2="183" stroke="#cc5533" stroke-width="1" stroke-dasharray="5,3"/>
-      <text x="88" y="191" text-anchor="middle" font-size="7.5" fill="#cc7755" font-weight="500">5V Boost Converter</text>
-      <text x="88" y="202" text-anchor="middle" font-size="7" fill="#aa5533">Battery → Solar</text>
+      <line x1="193" y1="265" x2="118" y2="278" stroke="#cc5533" stroke-width="1" stroke-dasharray="5,3"/>
+      <text x="82" y="286" text-anchor="middle" font-size="7.5" fill="#cc7755" font-weight="600">Power System</text>
+      <text x="82" y="296" text-anchor="middle" font-size="7" fill="#aa5533">5V Boost · TP4056 · 18650 LiPo</text>
+      <text x="82" y="305" text-anchor="middle" font-size="6.5" fill="#885533">6V Solar → Battery → Pi</text>
 
       {# ── WiFi / ntfy (bottom-right) ─────────────────────────────────────── #}
-      <line x1="270" y1="155" x2="345" y2="183" stroke="#5599cc" stroke-width="1" stroke-dasharray="4,3"/>
-      <text x="375" y="191" text-anchor="middle" font-size="7.5" fill="#6699cc" font-weight="500">WiFi 2.4 GHz</text>
-      <text x="375" y="202" text-anchor="middle" font-size="7" fill="#4477aa">ntfy.sh → Phone</text>
+      <line x1="272" y1="265" x2="347" y2="278" stroke="#5599cc" stroke-width="1" stroke-dasharray="4,3"/>
+      <text x="386" y="286" text-anchor="middle" font-size="7.5" fill="#6699cc" font-weight="600">WiFi 2.4 GHz</text>
+      <text x="386" y="296" text-anchor="middle" font-size="7" fill="#4477aa">→ ntfy.sh push notifications</text>
+      <text x="386" y="305" text-anchor="middle" font-size="6.5" fill="#335588">→ Web dashboard :8080</text>
 
     </svg>
 
