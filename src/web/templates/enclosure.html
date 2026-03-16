@@ -361,18 +361,187 @@ function addStandoffs(parent, holes, baseY, height, postR) {
   });
 }
 
-/* Image plane on top of a component box */
-function addImagePlane(parent, url, planeW, planeD, x, yTop, z) {
-  const loader = new THREE.TextureLoader();
-  loader.crossOrigin = 'anonymous';
-  loader.load(url, tex => {
-    tex.colorSpace = THREE.SRGBColorSpace;
-    const mat  = new THREE.MeshBasicMaterial({ map: tex, side: THREE.FrontSide });
-    const mesh = new THREE.Mesh(new THREE.PlaneGeometry(planeW * 0.9, planeD * 0.9), mat);
-    mesh.rotation.x = -Math.PI / 2;
-    mesh.position.set(x, yTop + 0.2, z);
-    parent.add(mesh);
-  }, undefined, () => {});
+/* ─────────────────────────────────────────────────────────────────────────
+   Canvas texture generators for component box faces
+   ───────────────────────────────────────────────────────────────────────── */
+
+/* Plain text label — used for thin side edges */
+function makeTextTex(lines, faceW, faceH, bgColor) {
+  const scale = 6;
+  const cw = Math.max(64,  Math.min(1024, Math.round(faceW * scale)));
+  const ch = Math.max(64,  Math.min(1024, Math.round(faceH * scale)));
+  const c  = document.createElement('canvas');
+  c.width  = cw;
+  c.height = ch;
+  const ctx = c.getContext('2d');
+
+  const hex = '#' + bgColor.toString(16).padStart(6, '0');
+  ctx.fillStyle = hex;
+  ctx.fillRect(0, 0, cw, ch);
+  ctx.strokeStyle = 'rgba(255,255,255,0.18)';
+  ctx.lineWidth = Math.max(2, cw * 0.012);
+  ctx.strokeRect(ctx.lineWidth, ctx.lineWidth, cw - ctx.lineWidth*2, ch - ctx.lineWidth*2);
+
+  ctx.fillStyle    = 'rgba(255,255,255,0.9)';
+  ctx.textAlign    = 'center';
+  ctx.textBaseline = 'middle';
+  const valid = lines.filter(Boolean);
+  const n = valid.length || 1;
+  valid.forEach((line, i) => {
+    const rowH = ch / (n + 1);
+    const fontSize = Math.max(8, Math.min(rowH * 0.65, cw * 0.16));
+    ctx.font = `bold ${fontSize}px monospace`;
+    ctx.fillText(line, cw / 2, (i + 1) * rowH, cw * 0.92);
+  });
+
+  const tex = new THREE.CanvasTexture(c);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  return tex;
+}
+
+/*
+ * PCB-style top-face texture — axis-aligned, silkscreen aesthetic.
+ * Draws a PCB board look: green substrate, gold pad row, white silk labels.
+ * Completely avoids external images (which are photographed at odd angles).
+ */
+function makePcbTopTex(w, d, bgColor, name, dims, specs, accentColor) {
+  const cw = Math.max(256, Math.min(1024, Math.round(w * 8)));
+  const ch = Math.max(256, Math.min(1024, Math.round(d * 8)));
+  const c  = document.createElement('canvas');
+  c.width  = cw;
+  c.height = ch;
+  const ctx = c.getContext('2d');
+
+  // PCB substrate
+  const pcbHex = '#' + bgColor.toString(16).padStart(6, '0');
+  ctx.fillStyle = pcbHex;
+  ctx.fillRect(0, 0, cw, ch);
+
+  // Board edge / silkscreen border
+  ctx.strokeStyle = 'rgba(255,255,255,0.35)';
+  ctx.lineWidth = Math.max(3, cw * 0.018);
+  ctx.strokeRect(ctx.lineWidth * 1.5, ctx.lineWidth * 1.5,
+    cw - ctx.lineWidth * 3, ch - ctx.lineWidth * 3);
+
+  // Gold pad strip along top edge (header row)
+  const padW  = cw * 0.045;
+  const padH  = ch * 0.12;
+  const padY  = ch * 0.04;
+  const nPads = Math.floor(cw / (padW * 1.7));
+  ctx.fillStyle = '#c8a840';
+  for (let i = 0; i < nPads; i++) {
+    const px = (cw - nPads * padW * 1.7) / 2 + i * padW * 1.7;
+    ctx.fillRect(px, padY, padW, padH);
+  }
+
+  // Gold pad strip along bottom edge
+  for (let i = 0; i < nPads; i++) {
+    const px = (cw - nPads * padW * 1.7) / 2 + i * padW * 1.7;
+    ctx.fillRect(px, ch - padY - padH, padW, padH);
+  }
+
+  // Accent chip rectangle (IC outline in centre-left)
+  const chipW = cw * 0.28, chipH = ch * 0.32;
+  const chipX = cw * 0.12, chipY = (ch - chipH) / 2;
+  ctx.strokeStyle = accentColor || 'rgba(255,255,255,0.5)';
+  ctx.lineWidth = Math.max(2, cw * 0.01);
+  ctx.strokeRect(chipX, chipY, chipW, chipH);
+  // IC pins on chip sides
+  const nPins = 4;
+  for (let i = 0; i < nPins; i++) {
+    const py = chipY + chipH * (i + 1) / (nPins + 1);
+    ctx.fillStyle = '#c8a840';
+    ctx.fillRect(chipX - cw*0.03, py - ch*0.012, cw*0.03, ch*0.025);
+    ctx.fillRect(chipX + chipW,   py - ch*0.012, cw*0.03, ch*0.025);
+  }
+
+  // White silkscreen: component name (large) + dims + specs
+  const textX = cw * 0.55;
+  const allLines = [name, dims, ...(specs || [])].filter(Boolean);
+  allLines.forEach((line, i) => {
+    const rowH = ch / (allLines.length + 2);
+    const fontSize = Math.max(14, Math.min(rowH * 0.7, cw * 0.11));
+    ctx.font      = `bold ${fontSize}px monospace`;
+    ctx.fillStyle = i === 0 ? 'rgba(255,255,255,0.95)' : 'rgba(200,200,200,0.75)';
+    ctx.textAlign = 'left';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(line, textX, (i + 1.5) * rowH, cw * 0.42);
+  });
+
+  // Corner mounting hole indicators (small circles)
+  const holeR = Math.min(cw, ch) * 0.04;
+  const margin = holeR * 1.8;
+  [[margin, margin],[cw-margin, margin],[margin, ch-margin],[cw-margin, ch-margin]].forEach(([hx, hy]) => {
+    ctx.beginPath();
+    ctx.arc(hx, hy, holeR, 0, Math.PI*2);
+    ctx.strokeStyle = 'rgba(255,255,255,0.6)';
+    ctx.lineWidth = 2;
+    ctx.stroke();
+    ctx.beginPath();
+    ctx.arc(hx, hy, holeR * 0.4, 0, Math.PI*2);
+    ctx.fillStyle = pcbHex;
+    ctx.fill();
+  });
+
+  const tex = new THREE.CanvasTexture(c);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  // CanvasTexture flipY is true by default; BoxGeometry +Y UV is also oriented
+  // so canvas left→right = world -X→+X, canvas top→bottom = world -Z→+Z
+  // No extra flip needed.
+  tex.flipY = true;
+  return tex;
+}
+
+/*
+ * makeCompBox — builds a BoxGeometry with 6 distinct face materials.
+ *
+ * BoxGeometry material face order:
+ *   0 = +X (right),  1 = -X (left)
+ *   2 = +Y (top),    3 = -Y (bottom)
+ *   4 = +Z (back),   5 = -Z (front)
+ *
+ * Top face (2) gets the PCB-style canvas texture.
+ * Side faces get axis-aligned text labels.
+ * No external images are loaded (avoids perspective-angle product photos).
+ */
+function makeCompBox(parent, w, h, d, x, y, z, bgColor, name, dims, specs) {
+  const accent = 'rgba(180,220,160,0.6)';
+
+  // Face dimensions [faceW, faceH] matching UV layout of each face
+  const faceDims = [
+    [d, h],  // 0: +X right
+    [d, h],  // 1: -X left
+    [w, d],  // 2: +Y top
+    [w, d],  // 3: -Y bottom
+    [w, h],  // 4: +Z back
+    [w, h],  // 5: -Z front
+  ];
+
+  // Automatically choose the largest face for PCB art texture
+  // (works for both flat PCBs on floor and vertical PCBs against walls)
+  const areas = faceDims.map(([fw, fh]) => fw * fh);
+  const artFace = areas.indexOf(Math.max(...areas));
+
+  const mats = faceDims.map(([fw, fh], i) => {
+    let tex;
+    if (i === artFace) {
+      tex = makePcbTopTex(fw, fh, bgColor, name, dims, specs, accent);
+    } else if (i === artFace ^ 1) {
+      // Opposite face (e.g. bottom): plain
+      tex = makeTextTex([''], fw, fh, bgColor);
+    } else {
+      const large = fw * fh > 300;
+      const lines = large ? [name, dims, ...(specs||[]).slice(0,2)] : [name, dims];
+      tex = makeTextTex(lines, fw, fh, bgColor);
+    }
+    return new THREE.MeshStandardMaterial({ map: tex, roughness: 0.55, metalness: 0.2 });
+  });
+
+  const mesh = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), mats);
+  mesh.position.set(x, y, z);
+  mesh.castShadow = mesh.receiveShadow = true;
+  parent.add(mesh);
+  return mesh;
 }
 
 /* Cutout ring indicator on a wall face */
@@ -526,10 +695,9 @@ function updateEnclosure() {
     [piX - 29, piZ + 11.5], [piX + 29, piZ + 11.5],
   ];
   addStandoffs(mountGroup, piHoles, floorY, PI_STANDOFF, PI_HOLE_R);
-  makeBox(compGroup, PI_W, PI_H, PI_D, piX, piPcbY, piZ,
-    new THREE.MeshStandardMaterial({ color: 0x1a3a1a, roughness: 0.55, metalness: 0.25 }));
-  addImagePlane(compGroup, 'https://cdn-shop.adafruit.com/970x728/5291-00.jpg',
-    PI_W * 0.92, PI_D * 0.92, piX, piPcbY + PI_H / 2, piZ);
+  makeCompBox(compGroup, PI_W, PI_H, PI_D, piX, piPcbY, piZ, 0x1a3a1a,
+    'Pi Zero 2W', '65×30mm',
+    ['ARM A53 1GHz', '512MB RAM', 'M2.5 × 4']);
 
   /* ───────────────────────────────────────────────────────────────────
    * Pi Camera Module v3 NoIR
@@ -556,8 +724,10 @@ function updateEnclosure() {
   // PCB sits flush against interior face of front wall
   const camPcbZ = -hD + t + CAM_PCB_T / 2;
 
-  makeBox(compGroup, CAM_W, CAM_H_PCB, CAM_PCB_T, camX, camPcbCentreY, camPcbZ,
-    new THREE.MeshStandardMaterial({ color: 0x1a2a3a, roughness: 0.55, metalness: 0.25 }));
+  // Camera PCB — vertical; top face (XY plane for thin PCB = face 5 -Z facing interior)
+  makeCompBox(compGroup, CAM_W, CAM_H_PCB, CAM_PCB_T, camX, camPcbCentreY, camPcbZ, 0x1a2a3a,
+    'Cam v3 NoIR', '25×24mm',
+    ['IMX708 12MP', 'No IR filter', 'M2 × 2']);
 
   // Lens barrel — centred on camX, camLensY, protruding outside
   const lensMat = new THREE.MeshStandardMaterial({ color: 0x111111, roughness: 0.3, metalness: 0.7 });
@@ -576,41 +746,50 @@ function updateEnclosure() {
   });
 
   /* ───────────────────────────────────────────────────────────────────
-   * HC-SR501 PIR Sensor
-   * PCB: 32 × 24 mm, 1.6 mm thick, laid FLAT on floor
-   * 2× M2 holes, 28 mm C-C along the 32 mm axis (2 mm from each end)
-   *   → ±14 mm from PCB centre on X axis
-   * Fresnel dome: 23 mm diameter, 15 mm tall, centred at X=16 mm from
-   *   left edge = 0 mm offset from PCB centre X
-   * Placed near front-right for PIR to see through front wall cutout
+   * HC-SR501 PIR Sensor — mounted VERTICALLY on front wall
+   *
+   * Real installation: PCB stands against interior face of front wall
+   * with Fresnel dome poking out through the circular cutout (-Z).
+   * PCB orientation in scene: 32 mm wide (X) × 24 mm tall (Y) × 1.6 mm deep (Z)
+   * 2× M2 holes, 28 mm C-C along horizontal (X) axis → ±14 mm from centre
+   * Dome: 23 mm diameter hemisphere, base flush at exterior front wall face,
+   *       protruding in -Z direction.
    */
-  const PIR_W = 32, PIR_D = 24, PIR_H = 1.6;
-  const PIR_STANDOFF  = 5;
-  const PIR_HOLE_R    = 1.0;   // M2
-  const PIR_DOME_R    = 11.5;  // 23 mm / 2
-  const PIR_DOME_H    = 15;
+  const PIR_W = 32, PIR_H_PCB = 24, PIR_PCB_T = 1.6;
+  const PIR_HOLE_R = 1.0;   // M2
+  const PIR_DOME_R = 11.5;  // 23 mm / 2
 
-  const pirX = hW * 0.28, pirZ = -(hD - t - PIR_D / 2 - 4);
-  const pirPcbY = floorY + PIR_STANDOFF + PIR_H / 2;
+  // PCB centre: right-of-camera on front wall, mid-height
+  const pirX   = hW * 0.28;
+  const pirPcbY = floorY + PIR_H_PCB / 2 + 12;  // 12 mm off floor
+  const pirPcbZ = -hD + t + PIR_PCB_T / 2;       // PCB flush with front wall interior
 
-  const pirHoles = [
-    [pirX - 14, pirZ],
-    [pirX + 14, pirZ],
-  ];
-  addStandoffs(mountGroup, pirHoles, floorY, PIR_STANDOFF, PIR_HOLE_R);
+  // M2 boss inserts on front wall (horizontal, ±14 mm from pirX)
+  [pirX - 14, pirX + 14].forEach(hx => {
+    const bm = new THREE.Mesh(new THREE.CylinderGeometry(1.2, 1.2, t + 2, 12), BRASS_MAT());
+    bm.rotation.x = Math.PI / 2;    // cylinder axis along Z (through wall)
+    bm.position.set(hx, pirPcbY, -hD);
+    mountGroup.add(bm);
+  });
 
-  makeBox(compGroup, PIR_W, PIR_H, PIR_D, pirX, pirPcbY, pirZ,
-    new THREE.MeshStandardMaterial({ color: 0x3a2a1a, roughness: 0.6, metalness: 0.2 }));
+  // PCB box (vertical slab, largest face = +Y/-Y 32×24mm → auto-selects PCB art)
+  makeCompBox(compGroup, PIR_W, PIR_H_PCB, PIR_PCB_T, pirX, pirPcbY, pirPcbZ, 0x3a2a1a,
+    'HC-SR501 PIR', '32×24mm',
+    ['PIR Motion', 'GPIO 17', 'M2 × 2']);
 
-  // Fresnel dome (hemisphere, centred above PCB)
+  // Fresnel dome: hemisphere pointing outward (-Z direction) through front wall
+  // SphereGeometry creates dome with pole at +Y, base at Y=0.
+  // rotation.x = -π/2 → pole rotates from +Y to -Z (outward).
   const domeMat = new THREE.MeshStandardMaterial({
-    color: 0xddddbb, roughness: 0.1, metalness: 0.0, transparent: true, opacity: 0.55,
+    color: 0xddddbb, roughness: 0.08, metalness: 0.0, transparent: true, opacity: 0.60,
   });
   const domeM = new THREE.Mesh(
-    new THREE.SphereGeometry(PIR_DOME_R, 28, 14, 0, Math.PI * 2, 0, Math.PI / 2),
+    new THREE.SphereGeometry(PIR_DOME_R, 32, 16, 0, Math.PI * 2, 0, Math.PI / 2),
     domeMat
   );
-  domeM.position.set(pirX, pirPcbY + PIR_H / 2, pirZ);
+  domeM.rotation.x = -Math.PI / 2;   // pole → -Z (outward through wall)
+  // Place so dome base sits at exterior face of front wall (z = -hD)
+  domeM.position.set(pirX, pirPcbY, -hD);
   compGroup.add(domeM);
 
   /* ───────────────────────────────────────────────────────────────────
@@ -633,10 +812,9 @@ function updateEnclosure() {
     [ampX + 7.15, ampZ],
   ];
   addStandoffs(mountGroup, ampHoles, floorY, AMP_STANDOFF, AMP_HOLE_R);
-  makeBox(compGroup, AMP_W, AMP_H, AMP_D, ampX, ampPcbY, ampZ,
-    new THREE.MeshStandardMaterial({ color: 0x2a1a3a, roughness: 0.55, metalness: 0.25 }));
-  addImagePlane(compGroup, 'https://cdn-shop.adafruit.com/970x728/3006-04.jpg',
-    AMP_W * 0.92, AMP_D * 0.92, ampX, ampPcbY + AMP_H / 2, ampZ);
+  makeCompBox(compGroup, AMP_W, AMP_H, AMP_D, ampX, ampPcbY, ampZ, 0x2a1a3a,
+    'MAX98357A', '19.4×17.8mm',
+    ['I2S Class-D', '3W Amp', 'M2.5 × 2']);
 
   /* ───────────────────────────────────────────────────────────────────
    * TP4056 LiPo Charger
@@ -650,10 +828,9 @@ function updateEnclosure() {
   const tpZ = hD - t - TP_D / 2 - 4;
   const tpPcbY = floorY + TP_H / 2;
 
-  makeBox(compGroup, TP_W, TP_H, TP_D, tpX, tpPcbY, tpZ,
-    new THREE.MeshStandardMaterial({ color: 0x1a2a2a, roughness: 0.6, metalness: 0.2 }));
-  addImagePlane(compGroup, 'https://www.addicore.com/cdn/shop/products/AD310-2.jpg?v=1689765930',
-    TP_W * 0.92, TP_D * 0.92, tpX, tpPcbY + TP_H / 2, tpZ);
+  makeCompBox(compGroup, TP_W, TP_H, TP_D, tpX, tpPcbY, tpZ, 0x1a2a2a,
+    'TP4056', '28×17mm',
+    ['LiPo Charger', 'USB-C In', 'Cradle Mount']);
 
   // Cradle: side rails + front/rear stops
   const cradleMat = new THREE.MeshStandardMaterial({ color: 0x2a3a2a, roughness: 0.6, metalness: 0.1 });
@@ -716,10 +893,9 @@ function updateEnclosure() {
   const BAT_W = 70, BAT_H = 18, BAT_D = 35;
   const batZ  = hD - t - BAT_D / 2 - 3;
   const batX  = -5;
-  makeBox(compGroup, BAT_W, BAT_H, BAT_D, batX, floorY + BAT_H / 2, batZ,
-    new THREE.MeshStandardMaterial({ color: 0x3a1a1a, roughness: 0.7, metalness: 0.3 }));
-  addImagePlane(compGroup, 'https://cdn-shop.adafruit.com/970x728/354-03.jpg',
-    BAT_W * 0.92, BAT_D * 0.92, batX, floorY + BAT_H, batZ);
+  makeCompBox(compGroup, BAT_W, BAT_H, BAT_D, batX, floorY + BAT_H / 2, batZ, 0x3a1a1a,
+    '18650 LiPo', '70×35×18mm',
+    ['3.7V · 5000mAh', '~3 days', 'TP4056→5V']);
 
   /* ════════════════════════════════════════════════
      FACE CUTOUT INDICATORS
@@ -735,10 +911,8 @@ function updateEnclosure() {
   // Camera lens cutout: radius = CAM_LENS_R + 0.5 mm clearance
   makeCutoutRing(cutoutGroup, CAM_LENS_R + 0.5, 0x0055ff, camX, camLensY, frontWallZ, 0, 0);
 
-  // PIR dome cutout: radius = PIR_DOME_R + 1.5 mm clearance (= 13 mm)
-  // Positioned at dome centre on front wall — dome sits on PCB near front
-  const pirCutoutY = pirPcbY + PIR_H / 2 + PIR_DOME_R * 0.35;
-  makeCutoutRing(cutoutGroup, PIR_DOME_R + 1.5, 0xff8800, pirX, pirCutoutY, frontWallZ, 0, 0);
+  // PIR dome cutout: centred exactly on dome (pirX, pirPcbY) on front wall
+  makeCutoutRing(cutoutGroup, PIR_DOME_R + 1.5, 0xff8800, pirX, pirPcbY, frontWallZ, 0, 0);
 
   // Speaker grille on right wall: SPK_R + 1 mm clearance ring + slot grid
   makeCutoutRing(cutoutGroup, SPK_R + 1, 0xaa00ff, rightWallX, spkY, spkZ, 0, Math.PI / 2);
