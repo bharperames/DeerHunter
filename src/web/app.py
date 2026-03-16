@@ -105,6 +105,7 @@ _hw_state: dict = {
     "audio_started_at": 0.0,
 }
 _hw_lock = threading.Lock()
+_audio_lock = threading.Lock()           # held for the full duration of audio playback
 _PIPELINE_DETECTED_HOLD_S: float = 1.5   # keep DETECTED visible for this long
 _AUDIO_PLAY_S: float = 5.0               # simulated audio burst duration
 _DETECTION_CONFIRM_FRAMES: int = 30      # same bbox must track for this many consecutive frames
@@ -417,20 +418,29 @@ def _processor_loop(confidence: float = 0.40) -> None:
                     _pipeline_detected_at = now
                     _hw_state["audio_playing"] = True
                     _hw_state["audio_started_at"] = now
-                    # Play deterrent audio — read config from first matching rule
-                    try:
-                        from src.actions.audio import play_audio
-                        cfg = _load_config()
-                        audio_cfg = next(
-                            (a for r in cfg.get("rules", [])
-                             for a in r.get("actions", [])
-                             if a.get("type") == "audio"),
-                            {"file": "predator_call.wav", "volume": 90},
-                        )
-                        threading.Thread(target=play_audio, args=(audio_cfg,),
-                                         daemon=True).start()
-                    except Exception as e:
-                        logger.warning("Audio dispatch error: %s", e)
+                    # Play deterrent audio — held lock prevents overlapping playback
+                    if _audio_lock.acquire(blocking=False):
+                        try:
+                            from src.actions.audio import play_audio
+                            cfg = _load_config()
+                            audio_cfg = next(
+                                (a for r in cfg.get("rules", [])
+                                 for a in r.get("actions", [])
+                                 if a.get("type") == "audio"),
+                                {"file": "predator_call.wav", "volume": 90},
+                            )
+                            def _play_and_release(ac=audio_cfg):
+                                try:
+                                    play_audio(ac)
+                                finally:
+                                    _audio_lock.release()
+                            threading.Thread(target=_play_and_release,
+                                             daemon=True).start()
+                        except Exception as e:
+                            _audio_lock.release()
+                            logger.warning("Audio dispatch error: %s", e)
+                    else:
+                        logger.debug("Audio already playing — skipping")
                     _detected_frame = jpeg
                     try:
                         SNAPSHOTS_DIR.mkdir(parents=True, exist_ok=True)
@@ -726,8 +736,13 @@ async def save_rules(request: Request, rules_yaml: str = Form(...),
     })
 
 
-@app.get("/status")
-async def system_status(auth=Depends(require_auth)):
+@app.get("/components", response_class=HTMLResponse)
+async def components_page(request: Request, auth=Depends(require_auth)):
+    return templates.TemplateResponse("components.html", {"request": request})
+
+
+@app.get("/status", response_class=HTMLResponse)
+async def system_status(request: Request, auth=Depends(require_auth)):
     uptime_s = None
     try:
         with open("/proc/uptime") as f:
@@ -735,14 +750,24 @@ async def system_status(auth=Depends(require_auth)):
     except FileNotFoundError:
         pass
     snap_count = len(list(SNAPSHOTS_DIR.glob("snap_*.jpg"))) if SNAPSHOTS_DIR.exists() else 0
-    clip_count = len(list(CLIPS_DIR.glob("clip_*.h264"))) if CLIPS_DIR.exists() else 0
-    return {
-        "uptime_seconds": uptime_s,
+    clip_count = len(list(CLIPS_DIR.glob("clip_*.mp4"))) if CLIPS_DIR.exists() else 0
+    with _hw_lock:
+        pipeline = _hw_state["pipeline"]
+        last_confidence = _hw_state["last_confidence"]
+    detector_mode = os.environ.get("DH_DETECTOR", "yolo_world")
+    video_source = Path(os.environ.get("DH_VIDEO", "")).name or None
+    return templates.TemplateResponse("status.html", {
+        "request": request,
+        "uptime_s": uptime_s,
         "snapshot_count": snap_count,
         "clip_count": clip_count,
         "camera_available": _camera is not None,
         "detector_available": _detector is not None,
-    }
+        "detector_mode": detector_mode,
+        "video_source": video_source,
+        "pipeline": pipeline,
+        "last_confidence": last_confidence,
+    })
 
 
 # ---------------------------------------------------------------------------

@@ -614,6 +614,122 @@ img.snapshot { max-width: 720px; width: 100%; border-radius: 6px; border: 1px so
 .pout-blue { color: #5599ee; }
 .pout-blue.pout-state::before { content: '● '; opacity: 1; color: #5599ee; }
 
+/* ─── Components page ───────────────────────────────────────────────────── */
+.comp-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  gap: 0.75rem;
+  margin-bottom: 1rem;
+}
+.comp-card {
+  background: #0e0e0e;
+  border: 1px solid #222;
+  border-radius: 7px;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  transition: border-color 0.2s;
+}
+.comp-card:hover { border-color: #3a3a3a; }
+.comp-img-wrap {
+  background: #fff;
+  aspect-ratio: 4/3;
+  overflow: hidden;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.comp-img-wrap img {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  padding: 0.5rem;
+}
+.comp-body {
+  padding: 0.6rem 0.75rem 0.75rem;
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+}
+.comp-title {
+  font-size: 0.85rem;
+  font-weight: 700;
+  color: #ddd;
+  margin-bottom: 0.1rem;
+}
+.comp-model {
+  font-size: 0.65rem;
+  color: #555;
+  font-family: monospace;
+  margin-bottom: 0.4rem;
+}
+.comp-specs {
+  list-style: none;
+  padding: 0; margin: 0 0 0.5rem;
+  flex: 1;
+}
+.comp-specs li {
+  font-size: 0.68rem;
+  color: #777;
+  padding: 0.1rem 0;
+  border-bottom: 1px solid #161616;
+}
+.comp-specs li::before { content: '· '; color: #333; }
+.comp-role {
+  display: inline-block;
+  font-size: 0.58rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  padding: 0.15rem 0.4rem;
+  border-radius: 3px;
+  align-self: flex-start;
+  margin-top: auto;
+}
+.comp-role--primary  { background: #0c2010; color: #6abf69; border: 1px solid #1a4a1a; }
+.comp-role--camera   { background: #0a1830; color: #5599ee; border: 1px solid #1a3060; }
+.comp-role--sensor   { background: #201800; color: #cc9933; border: 1px solid #403000; }
+.comp-role--audio    { background: #200a20; color: #aa66cc; border: 1px solid #3a1a3a; }
+.comp-role--power    { background: #200a0a; color: #cc5533; border: 1px solid #401515; }
+.comp-img { cursor: zoom-in; transition: opacity 0.15s; }
+.comp-img:hover { opacity: 0.85; }
+.comp-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-top: auto;
+  padding-top: 0.4rem;
+}
+.comp-buy {
+  font-size: 0.65rem;
+  font-weight: 700;
+  color: #4477aa;
+  text-decoration: none;
+  letter-spacing: 0.04em;
+  padding: 0.15rem 0.4rem;
+  border: 1px solid #1a3060;
+  border-radius: 3px;
+  transition: background 0.15s, color 0.15s;
+}
+.comp-buy:hover { background: #1a3060; color: #88bbee; }
+#lightbox {
+  position: fixed; inset: 0; z-index: 9999;
+  background: rgba(0,0,0,0.92);
+  display: flex; flex-direction: column;
+  align-items: center; justify-content: center;
+  cursor: zoom-out;
+  gap: 0.75rem;
+}
+#lightbox-img {
+  max-width: 90vw; max-height: 85vh;
+  object-fit: contain;
+  border-radius: 4px;
+  box-shadow: 0 8px 40px rgba(0,0,0,0.8);
+}
+#lightbox-caption {
+  color: #888; font-size: 0.75rem; font-family: monospace;
+}
+
 /* ─── Pipeline mini (inside main card, lower left) ──────────────────────── */
 .pipeline-mini-row { flex: 1; }
 .pipeline-mini-row .pipeline { flex-wrap: nowrap; }

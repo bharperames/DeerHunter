@@ -1,0 +1,205 @@
+{% extends "base.html" %}
+{% block title %}Components — DeerHunter{% endblock %}
+
+{% block content %}
+<h2 style="font-size:0.9rem;color:#555;text-transform:uppercase;letter-spacing:0.1em;margin:0.6rem 0 0.75rem;">Hardware Components</h2>
+
+<div class="comp-grid">
+
+  <div class="comp-card">
+    <div class="comp-img-wrap">
+      <img src="https://cdn-shop.adafruit.com/970x728/5291-00.jpg" alt="Raspberry Pi Zero 2W" loading="lazy"
+           class="comp-img" onclick="showLightbox(this.src, this.alt)">
+    </div>
+    <div class="comp-body">
+      <div class="comp-title">Raspberry Pi Zero 2W</div>
+      <div class="comp-model">SC0510</div>
+      <ul class="comp-specs">
+        <li>ARM Cortex-A53 quad-core 1GHz</li>
+        <li>512MB LPDDR2 SDRAM</li>
+        <li>2.4GHz 802.11b/g/n WiFi</li>
+        <li>CSI camera connector</li>
+        <li>~300mA active · ~15mA sleep</li>
+      </ul>
+      <div class="comp-footer">
+        <span class="comp-role comp-role--primary">Main Computer</span>
+        <a href="https://www.adafruit.com/product/5291" target="_blank" rel="noopener" class="comp-buy">Buy →</a>
+      </div>
+    </div>
+  </div>
+
+  <div class="comp-card">
+    <div class="comp-img-wrap">
+      <img src="https://cdn-shop.adafruit.com/970x728/5659-03.jpg" alt="Pi Camera Module v3 NoIR" loading="lazy"
+           class="comp-img" onclick="showLightbox(this.src, this.alt)">
+    </div>
+    <div class="comp-body">
+      <div class="comp-title">Pi Camera Module v3 NoIR</div>
+      <div class="comp-model">SC0872</div>
+      <ul class="comp-specs">
+        <li>12MP Sony IMX708 sensor</li>
+        <li>No IR filter — night vision</li>
+        <li>HDR + autofocus</li>
+        <li>CSI ribbon cable</li>
+        <li>FoV 102° diagonal</li>
+      </ul>
+      <div class="comp-footer">
+        <span class="comp-role comp-role--camera">Camera</span>
+        <a href="https://www.adafruit.com/product/5659" target="_blank" rel="noopener" class="comp-buy">Buy →</a>
+      </div>
+    </div>
+  </div>
+
+  <div class="comp-card">
+    <div class="comp-img-wrap">
+      <img src="https://lastminuteengineers.com/wp-content/uploads/arduino/HC-SR501-PIR-Sensor-with-Lens.jpg" alt="HC-SR501 PIR Sensor" loading="lazy"
+           class="comp-img" onclick="showLightbox(this.src, this.alt)">
+    </div>
+    <div class="comp-body">
+      <div class="comp-title">HC-SR501 PIR Sensor</div>
+      <div class="comp-model">HC-SR501</div>
+      <ul class="comp-specs">
+        <li>Passive infrared motion detector</li>
+        <li>GPIO 17 (BCM) interrupt</li>
+        <li>~50µA standby current</li>
+        <li>3–7m detection range</li>
+        <li>Adjustable sensitivity &amp; delay</li>
+      </ul>
+      <div class="comp-footer">
+        <span class="comp-role comp-role--sensor">Motion Sensor</span>
+        <a href="https://www.adafruit.com/product/189" target="_blank" rel="noopener" class="comp-buy">Buy →</a>
+      </div>
+    </div>
+  </div>
+
+  <div class="comp-card">
+    <div class="comp-img-wrap">
+      <img src="https://cdn-shop.adafruit.com/970x728/3006-04.jpg" alt="MAX98357A I2S Amplifier" loading="lazy"
+           class="comp-img" onclick="showLightbox(this.src, this.alt)">
+    </div>
+    <div class="comp-body">
+      <div class="comp-title">MAX98357A Amplifier</div>
+      <div class="comp-model">I2S Class-D</div>
+      <ul class="comp-specs">
+        <li>3W Class-D audio amplifier</li>
+        <li>I2S digital audio input</li>
+        <li>GPIO 18 / 19 / 21</li>
+        <li>92% efficient</li>
+        <li>No I2C address needed</li>
+      </ul>
+      <div class="comp-footer">
+        <span class="comp-role comp-role--audio">Amplifier</span>
+        <a href="https://www.adafruit.com/product/3006" target="_blank" rel="noopener" class="comp-buy">Buy →</a>
+      </div>
+    </div>
+  </div>
+
+  <div class="comp-card">
+    <div class="comp-img-wrap">
+      <img src="https://cdn-shop.adafruit.com/970x728/1890-06.jpg" alt="8Ω Mini Speaker" loading="lazy"
+           class="comp-img" onclick="showLightbox(this.src, this.alt)">
+    </div>
+    <div class="comp-body">
+      <div class="comp-title">Mini Speaker</div>
+      <div class="comp-model">8Ω · 0.5W</div>
+      <ul class="comp-specs">
+        <li>8 ohm impedance</li>
+        <li>0.5W continuous power</li>
+        <li>Weatherproof enclosure</li>
+        <li>Deterrent audio output</li>
+      </ul>
+      <div class="comp-footer">
+        <span class="comp-role comp-role--audio">Speaker</span>
+        <a href="https://www.adafruit.com/product/1890" target="_blank" rel="noopener" class="comp-buy">Buy →</a>
+      </div>
+    </div>
+  </div>
+
+  <div class="comp-card">
+    <div class="comp-img-wrap">
+      <img src="https://cdn-shop.adafruit.com/970x728/354-03.jpg" alt="18650 LiPo Battery Pack" loading="lazy"
+           class="comp-img" onclick="showLightbox(this.src, this.alt)">
+    </div>
+    <div class="comp-body">
+      <div class="comp-title">18650 LiPo Battery</div>
+      <div class="comp-model">3.7V · ~5Ah pack</div>
+      <ul class="comp-specs">
+        <li>3.7V nominal · 4.2V max</li>
+        <li>~5000mAh capacity</li>
+        <li>~3 days without sun</li>
+        <li>5V boost converter → Pi</li>
+        <li>Protected cells (PCB)</li>
+      </ul>
+      <div class="comp-footer">
+        <span class="comp-role comp-role--power">Power</span>
+        <a href="https://www.adafruit.com/product/354" target="_blank" rel="noopener" class="comp-buy">Buy →</a>
+      </div>
+    </div>
+  </div>
+
+  <div class="comp-card">
+    <div class="comp-img-wrap">
+      <img src="https://www.addicore.com/cdn/shop/products/AD310-2.jpg?v=1689765930" alt="TP4056 Charger Module" loading="lazy"
+           class="comp-img" onclick="showLightbox(this.src, this.alt)">
+    </div>
+    <div class="comp-body">
+      <div class="comp-title">TP4056 Charger</div>
+      <div class="comp-model">TC4056A</div>
+      <ul class="comp-specs">
+        <li>LiPo charge controller</li>
+        <li>USB-C or solar input</li>
+        <li>1A max charge current</li>
+        <li>Over-charge protection</li>
+        <li>Charge indicator LEDs</li>
+      </ul>
+      <div class="comp-footer">
+        <span class="comp-role comp-role--power">Charger</span>
+        <a href="https://www.addicore.com/products/tp4056-tc4056a-lithium-battery-charger-and-protection-module" target="_blank" rel="noopener" class="comp-buy">Buy →</a>
+      </div>
+    </div>
+  </div>
+
+  <div class="comp-card">
+    <div class="comp-img-wrap">
+      <img src="https://cdn-shop.adafruit.com/970x728/3809-03.jpg" alt="6V Solar Panel" loading="lazy"
+           class="comp-img" onclick="showLightbox(this.src, this.alt)">
+    </div>
+    <div class="comp-body">
+      <div class="comp-title">Solar Panel</div>
+      <div class="comp-model">6V · 1W</div>
+      <ul class="comp-specs">
+        <li>6V nominal output</li>
+        <li>~200mA in full sun</li>
+        <li>Feeds TP4056 charger</li>
+        <li>PETG enclosure mount</li>
+        <li>Extends runtime indefinitely</li>
+      </ul>
+      <div class="comp-footer">
+        <span class="comp-role comp-role--power">Solar</span>
+        <a href="https://www.adafruit.com/product/3809" target="_blank" rel="noopener" class="comp-buy">Buy →</a>
+      </div>
+    </div>
+  </div>
+
+</div>
+
+{# ── Lightbox overlay ── #}
+<div id="lightbox" onclick="hideLightbox()" style="display:none;">
+  <img id="lightbox-img" src="" alt="">
+  <div id="lightbox-caption"></div>
+</div>
+
+<script>
+function showLightbox(src, alt) {
+  document.getElementById('lightbox-img').src = src;
+  document.getElementById('lightbox-caption').textContent = alt;
+  document.getElementById('lightbox').style.display = 'flex';
+}
+function hideLightbox() {
+  document.getElementById('lightbox').style.display = 'none';
+}
+document.addEventListener('keydown', function(e) {
+  if (e.key === 'Escape') hideLightbox();
+});
+</script>
+{% endblock %}
