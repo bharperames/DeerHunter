@@ -132,9 +132,9 @@
       <div class="ep-row">
         <div class="ep-label-row">
           <label class="ep-label" for="ctrl-depth">Depth</label>
-          <span class="ep-val" id="val-depth">70 mm</span>
+          <span class="ep-val" id="val-depth">90 mm</span>
         </div>
-        <input type="range" id="ctrl-depth" min="50" max="120" step="5" value="70">
+        <input type="range" id="ctrl-depth" min="50" max="140" step="5" value="90">
       </div>
 
       <div class="ep-row">
@@ -179,6 +179,37 @@
         <input type="checkbox" id="ctrl-cutouts" checked>
         <span class="ep-check-label">Show cutout indicators</span>
       </label>
+
+      <div style="margin-top:0.5rem;">
+        <button id="btn-tess"
+          style="width:100%;padding:0.3rem 0;background:#1a2a1a;border:1px solid #333;
+                 color:#6abf69;font-size:0.7rem;font-family:monospace;cursor:pointer;
+                 border-radius:3px;letter-spacing:0.05em;">
+          Tessellation: OFF
+        </button>
+      </div>
+    </div>
+
+    {# — Export — #}
+    <div class="ep-section">
+      <div class="ep-section-title">Export</div>
+      <div style="display:flex;gap:0.5rem;">
+        <button id="btn-export-stl" disabled
+          style="flex:1;padding:0.35rem 0;background:#111;border:1px solid #333;
+                 color:#aaa;font-size:0.7rem;font-family:monospace;cursor:pointer;
+                 border-radius:3px;opacity:0.5;">
+          ↓ STL
+        </button>
+        <button id="btn-export-3mf" disabled
+          style="flex:1;padding:0.35rem 0;background:#1a2a1a;border:1px solid #2a4a2a;
+                 color:#6abf69;font-size:0.7rem;font-family:monospace;cursor:pointer;
+                 border-radius:3px;opacity:0.5;">
+          ↓ 3MF
+        </button>
+      </div>
+      <div id="export-status"
+        style="font-size:0.62rem;font-family:monospace;color:#555;margin-top:0.35rem;
+               min-height:0.9rem;"></div>
     </div>
 
     <div class="ep-section">
@@ -227,15 +258,23 @@
 <script type="importmap">
 {
   "imports": {
-    "three":          "https://unpkg.com/three@0.160.0/build/three.module.js",
-    "three/addons/":  "https://unpkg.com/three@0.160.0/examples/jsm/"
+    "three":            "https://unpkg.com/three@0.160.0/build/three.module.js",
+    "three/addons/":    "https://unpkg.com/three@0.160.0/examples/jsm/",
+    "three-mesh-bvh":   "https://unpkg.com/three-mesh-bvh@0.7.3/build/index.module.js",
+    "three-bvh-csg":    "https://unpkg.com/three-bvh-csg@0.0.16/build/index.module.js",
+    "fflate":           "https://unpkg.com/fflate@0.8.2/esm/browser.js"
   }
 }
 </script>
 
 <script type="module">
 import * as THREE from 'three';
-import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+import { OrbitControls }     from 'three/addons/controls/OrbitControls.js';
+import { BufferGeometryUtils } from 'three/addons/utils/BufferGeometryUtils.js';
+import { Evaluator, Brush, SUBTRACTION } from 'three-bvh-csg';
+import * as fflate from 'fflate';
+
+const csgEval = new Evaluator();
 
 /* ── Scene / Renderer / Camera ── */
 const canvas  = document.getElementById('enc-canvas');
@@ -319,7 +358,9 @@ scene.add(bottom);
 })();
 
 /* ── Group management ── */
-let encGroup = null, compGroup = null, mountGroup = null, cutoutGroup = null;
+let encGroup = null, compGroup = null, mountGroup = null, cutoutGroup = null, wireGroup = null;
+let exportGeometry = null;   // merged printable geometry (set after CSG build)
+let tessMode = false;        // wireframe overlay toggle
 
 function disposeGroup(g) {
   if (!g) return;
@@ -331,6 +372,215 @@ function disposeGroup(g) {
     }
   });
   scene.remove(g);
+}
+
+/* ─────────────────────────────────────────────────────────────────────────
+   CSG helpers — build wall geometry with actual cutout holes
+   ─────────────────────────────────────────────────────────────────────────
+
+   Strategy: build each wall as a positioned BoxGeometry, subtract holes
+   (cylinder or box) via three-bvh-csg, merge all results into exportGeometry.
+
+   All geometries are pre-translated to world space (applyMatrix4) before
+   creating Brush objects so the CSG evaluator works in a consistent space.
+   ───────────────────────────────────────────────────────────────────────── */
+
+// Translate a BufferGeometry in-place to world position and return it
+function geoAt(geo, tx, ty, tz, rx=0, ry=0, rz=0) {
+  const m4 = new THREE.Matrix4();
+  const q  = new THREE.Quaternion().setFromEuler(new THREE.Euler(rx, ry, rz));
+  m4.compose(new THREE.Vector3(tx, ty, tz), q, new THREE.Vector3(1,1,1));
+  geo.applyMatrix4(m4);
+  return geo;
+}
+
+// Subtract an array of hole geometries from a base geometry using CSG
+// Returns: THREE.BufferGeometry (in world space, no mesh positioning)
+function csgSubtract(baseGeo, holeGeos) {
+  const dummyMat = new THREE.MeshStandardMaterial();
+  let brush = new Brush(baseGeo, dummyMat);
+  brush.updateMatrixWorld();
+
+  for (const hGeo of holeGeos) {
+    const holeBrush = new Brush(hGeo, dummyMat);
+    holeBrush.updateMatrixWorld();
+    try {
+      const result = csgEval.evaluate(brush, holeBrush, SUBTRACTION);
+      result.updateMatrixWorld();
+      brush = result;
+    } catch (e) {
+      console.warn('[CSG] Subtraction failed, skipping hole:', e);
+    }
+  }
+  return brush.geometry;
+}
+
+// Build a wall mesh with CSG holes; add to parent and collect into geoms array
+function makeWall(parent, mat, baseGeo, holeGeos, exportGeos) {
+  const resultGeo = holeGeos.length ? csgSubtract(baseGeo, holeGeos) : baseGeo;
+  resultGeo.computeVertexNormals();
+  const mesh = new THREE.Mesh(resultGeo, mat);
+  mesh.castShadow = mesh.receiveShadow = true;
+  parent.add(mesh);
+  if (exportGeos) exportGeos.push(resultGeo.clone());
+  return mesh;
+}
+
+/* ─────────────────────────────────────────────────────────────────────────
+   Tessellation / wireframe toggle
+   ───────────────────────────────────────────────────────────────────────── */
+function applyTessMode(on) {
+  tessMode = on;
+
+  // Remove existing wire overlay
+  if (wireGroup) { disposeGroup(wireGroup); wireGroup = null; }
+
+  if (on) {
+    wireGroup = new THREE.Group();
+    scene.add(wireGroup);
+    const wireMat = new THREE.LineBasicMaterial({ color: 0x6abf69, linewidth: 1 });
+    [encGroup, compGroup, mountGroup].forEach(g => {
+      if (!g) return;
+      g.traverse(obj => {
+        if (!obj.isMesh) return;
+        const wGeo = new THREE.WireframeGeometry(obj.geometry);
+        const lines = new THREE.LineSegments(wGeo, wireMat.clone());
+        lines.position.copy(obj.getWorldPosition(new THREE.Vector3()));
+        lines.quaternion.copy(obj.getWorldQuaternion(new THREE.Quaternion()));
+        wireGroup.add(lines);
+      });
+    });
+
+    // Dim solid materials
+    [encGroup, compGroup, mountGroup].forEach(g => {
+      if (!g) return;
+      g.traverse(obj => {
+        if (!obj.isMesh) return;
+        const mats = Array.isArray(obj.material) ? obj.material : [obj.material];
+        mats.forEach(m => { m.transparent = true; m.opacity = Math.min(m.opacity ?? 1, 0.18); m.needsUpdate = true; });
+      });
+    });
+  } else {
+    // Restore opacity
+    updateShellOpacity(parseFloat(document.getElementById('ctrl-opacity').value));
+    [compGroup, mountGroup].forEach(g => {
+      if (!g) return;
+      g.traverse(obj => {
+        if (!obj.isMesh) return;
+        const mats = Array.isArray(obj.material) ? obj.material : [obj.material];
+        mats.forEach(m => { m.transparent = false; m.opacity = 1; m.needsUpdate = true; });
+      });
+    });
+  }
+}
+
+/* ─────────────────────────────────────────────────────────────────────────
+   STL Binary Export  (no external library — matches StandMaker pattern)
+   ───────────────────────────────────────────────────────────────────────── */
+function geometryToSTL(geo) {
+  const pos   = geo.attributes.position;
+  const index = geo.index;
+  const nTris = index ? index.count / 3 : pos.count / 3;
+  const buf   = new ArrayBuffer(84 + nTris * 50);
+  const view  = new DataView(buf);
+
+  // 80-byte header
+  const enc = new TextEncoder();
+  enc.encodeInto('DeerHunter Enclosure — exported by DeerHunter design studio', new Uint8Array(buf, 0, 80));
+  view.setUint32(80, nTris, true);
+
+  const vA = new THREE.Vector3(), vB = new THREE.Vector3(), vC = new THREE.Vector3();
+  const n  = new THREE.Vector3();
+  let offset = 84;
+
+  for (let i = 0; i < nTris; i++) {
+    const ia = index ? index.getX(i*3)   : i*3;
+    const ib = index ? index.getX(i*3+1) : i*3+1;
+    const ic = index ? index.getX(i*3+2) : i*3+2;
+    vA.fromBufferAttribute(pos, ia);
+    vB.fromBufferAttribute(pos, ib);
+    vC.fromBufferAttribute(pos, ic);
+    n.crossVectors(vB.clone().sub(vA), vC.clone().sub(vA)).normalize();
+
+    // Normal
+    view.setFloat32(offset,    n.x, true); offset += 4;
+    view.setFloat32(offset,    n.y, true); offset += 4;
+    view.setFloat32(offset,    n.z, true); offset += 4;
+    // 3 vertices (Three.js Y-up coords; STL is also Y-up so no swap needed for basic STL)
+    for (const v of [vA, vB, vC]) {
+      view.setFloat32(offset,   v.x, true); offset += 4;
+      view.setFloat32(offset,   v.y, true); offset += 4;
+      view.setFloat32(offset,   v.z, true); offset += 4;
+    }
+    view.setUint16(offset, 0, true); offset += 2; // attribute byte count
+  }
+  return buf;
+}
+
+/* ─────────────────────────────────────────────────────────────────────────
+   3MF Export (Three.js Y-up → 3MF Z-up: X→X, Y→-Z, Z→Y)
+   ───────────────────────────────────────────────────────────────────────── */
+function geometryTo3MF(geo) {
+  const pos   = geo.attributes.position;
+  const index = geo.index;
+
+  // Deduplicate vertices
+  const dedupGeo = BufferGeometryUtils.mergeVertices(geo.clone(), 1e-4);
+  const dPos = dedupGeo.attributes.position;
+  const dIdx = dedupGeo.index;
+
+  let verts = '';
+  for (let i = 0; i < dPos.count; i++) {
+    // Y-up → Z-up: x, -z, y
+    verts += `<vertex x="${dPos.getX(i).toFixed(4)}" y="${(-dPos.getZ(i)).toFixed(4)}" z="${dPos.getY(i).toFixed(4)}"/>\n`;
+  }
+
+  let tris = '';
+  for (let i = 0; i < dIdx.count; i += 3) {
+    tris += `<triangle v1="${dIdx.getX(i)}" v2="${dIdx.getX(i+1)}" v3="${dIdx.getX(i+2)}"/>\n`;
+  }
+
+  const model = `<?xml version="1.0" encoding="UTF-8"?>
+<model unit="millimeter" xml:lang="en-US"
+       xmlns="http://schemas.microsoft.com/3dmanufacturing/core/2015/02">
+  <resources>
+    <object id="1" type="model">
+      <mesh>
+        <vertices>${verts}</vertices>
+        <triangles>${tris}</triangles>
+      </mesh>
+    </object>
+  </resources>
+  <build><item objectid="1"/></build>
+</model>`;
+
+  const contentTypes = `<?xml version="1.0" encoding="UTF-8"?>
+<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">
+  <Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>
+  <Default Extension="model" ContentType="application/vnd.ms-package.3dmanufacturing-3dmodel+xml"/>
+</Types>`;
+
+  const rels = `<?xml version="1.0" encoding="UTF-8"?>
+<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
+  <Relationship Target="/3D/model.model" Id="rel0"
+    Type="http://schemas.microsoft.com/3dmanufacturing/2013/01/3dmodel"/>
+</Relationships>`;
+
+  return fflate.zipSync({
+    '[Content_Types].xml': fflate.strToU8(contentTypes),
+    '_rels/.rels':         fflate.strToU8(rels),
+    '3D/model.model':      fflate.strToU8(model),
+  });
+}
+
+function downloadFile(data, filename, mime) {
+  const blob   = new Blob([data], { type: mime });
+  const url    = URL.createObjectURL(blob);
+  const anchor = document.createElement('a');
+  anchor.href  = url;
+  anchor.download = filename;
+  anchor.click();
+  URL.revokeObjectURL(url);
 }
 
 /* ── Geometry helpers ── */
@@ -493,32 +743,20 @@ function makePcbTopTex(w, d, bgColor, name, dims, specs, accentColor) {
 }
 
 /*
- * makeCompBox — builds a BoxGeometry with 6 distinct face materials.
- *
- * BoxGeometry material face order:
- *   0 = +X (right),  1 = -X (left)
- *   2 = +Y (top),    3 = -Y (bottom)
- *   4 = +Z (back),   5 = -Z (front)
- *
- * Top face (2) gets the PCB-style canvas texture.
- * Side faces get axis-aligned text labels.
- * No external images are loaded (avoids perspective-angle product photos).
+ * makeCompBox — 6-material BoxGeometry.
+ * Largest face: PCB-art canvas immediately + product photo overlaid once loaded.
+ * Side faces: text labels.
+ * imgURL: product image URL (optional, loaded async — shown on top of PCB art).
  */
-function makeCompBox(parent, w, h, d, x, y, z, bgColor, name, dims, specs) {
+function makeCompBox(parent, w, h, d, x, y, z, bgColor, name, dims, specs, imgURL='') {
   const accent = 'rgba(180,220,160,0.6)';
 
-  // Face dimensions [faceW, faceH] matching UV layout of each face
   const faceDims = [
-    [d, h],  // 0: +X right
-    [d, h],  // 1: -X left
-    [w, d],  // 2: +Y top
-    [w, d],  // 3: -Y bottom
-    [w, h],  // 4: +Z back
-    [w, h],  // 5: -Z front
+    [d, h], [d, h],  // 0,1: ±X
+    [w, d], [w, d],  // 2,3: ±Y (top/bottom)
+    [w, h], [w, h],  // 4,5: ±Z (back/front)
   ];
 
-  // Automatically choose the largest face for PCB art texture
-  // (works for both flat PCBs on floor and vertical PCBs against walls)
   const areas = faceDims.map(([fw, fh]) => fw * fh);
   const artFace = areas.indexOf(Math.max(...areas));
 
@@ -526,12 +764,10 @@ function makeCompBox(parent, w, h, d, x, y, z, bgColor, name, dims, specs) {
     let tex;
     if (i === artFace) {
       tex = makePcbTopTex(fw, fh, bgColor, name, dims, specs, accent);
-    } else if (i === artFace ^ 1) {
-      // Opposite face (e.g. bottom): plain
+    } else if (i === (artFace % 2 === 0 ? artFace + 1 : artFace - 1)) {
       tex = makeTextTex([''], fw, fh, bgColor);
     } else {
-      const large = fw * fh > 300;
-      const lines = large ? [name, dims, ...(specs||[]).slice(0,2)] : [name, dims];
+      const lines = fw * fh > 300 ? [name, dims, ...(specs||[]).slice(0,2)] : [name, dims];
       tex = makeTextTex(lines, fw, fh, bgColor);
     }
     return new THREE.MeshStandardMaterial({ map: tex, roughness: 0.55, metalness: 0.2 });
@@ -541,6 +777,19 @@ function makeCompBox(parent, w, h, d, x, y, z, bgColor, name, dims, specs) {
   mesh.position.set(x, y, z);
   mesh.castShadow = mesh.receiveShadow = true;
   parent.add(mesh);
+
+  // Async: replace art face with product photo (shows device photo on top face)
+  if (imgURL) {
+    const loader = new THREE.TextureLoader();
+    loader.crossOrigin = 'anonymous';
+    loader.load(imgURL, tex => {
+      tex.colorSpace = THREE.SRGBColorSpace;
+      tex.flipY = (artFace === 2 || artFace === 3);
+      mats[artFace].map = tex;
+      mats[artFace].needsUpdate = true;
+    }, undefined, () => {});
+  }
+
   return mesh;
 }
 
@@ -609,6 +858,12 @@ function updateEnclosure() {
   disposeGroup(compGroup);
   disposeGroup(mountGroup);
   disposeGroup(cutoutGroup);
+  disposeGroup(wireGroup);
+  wireGroup = null;
+  exportGeometry = null;
+  document.getElementById('btn-export-stl').disabled = true;
+  document.getElementById('btn-export-3mf').disabled = true;
+  document.getElementById('export-status').textContent = 'Building geometry…';
 
   const t = p.wallT, W = p.encW, H = p.encH, D = p.encD;
   const hW = W/2, hH = H/2, hD = D/2;
@@ -628,32 +883,14 @@ function updateEnclosure() {
   encGroup = new THREE.Group();
   scene.add(encGroup);
 
-  // Floor: y centre = t/2
-  makeBox(encGroup, W, t, D, 0, t/2, 0, shellMat());
-  // Front wall (faces -Z, camera/PIR face)
-  makeBox(encGroup, W, H, t, 0, hH, -hD + t/2, shellMat());
-  // Back wall
-  makeBox(encGroup, W, H, t, 0, hH,  hD - t/2, shellMat());
-  // Left wall
-  makeBox(encGroup, t, H, D, -hW + t/2, hH, 0, shellMat());
-  // Right wall (speaker side)
-  makeBox(encGroup, t, H, D,  hW - t/2, hH, 0, shellMat());
-  // Lid — raised above box by lidGap
+  /* We defer making CSG holes until component positions are known below.
+     For now build the solid walls; they're replaced post-component section. */
+
+  // Lid — raised above box by lidGap (no holes, built immediately)
   makeBox(encGroup, W, t, D, 0, H + p.lidGap + t/2, 0, shellMat());
 
-  /* Lid M3 corner screw bosses (4× corners) */
-  const lidMat = () => new THREE.MeshStandardMaterial({ color: 0x3a4a3a, roughness: 0.6, metalness: 0.1 });
-  const bossCx = hW - t - 5, bossCz = hD - t - 5;
-  [[bossCx, bossCz],[-bossCx, bossCz],[bossCx,-bossCz],[-bossCx,-bossCz]].forEach(([bx, bz]) => {
-    // Boss column from floor to just below lid seam
-    makeCyl(encGroup, 5, 5, H - t, bx, t + (H-t)/2, bz, lidMat());
-    // M3 hole indicator (thin disk at lid level)
-    const holeMat = new THREE.MeshBasicMaterial({ color: 0x888888, side: THREE.DoubleSide });
-    const holeM = new THREE.Mesh(new THREE.CircleGeometry(1.5, 16), holeMat);
-    holeM.rotation.x = -Math.PI/2;
-    holeM.position.set(bx, H + 0.1, bz);
-    encGroup.add(holeM);
-  });
+  // Collect export geometries (filled after CSG below)
+  const exportGeos = [];
 
   /* ════════════════════════════════════════════════
      COMPONENTS
@@ -688,7 +925,7 @@ function updateEnclosure() {
   const PI_W = 65, PI_D = 30, PI_H = 1.6;
   const PI_STANDOFF = 5;    // standoff height (mm)
   const PI_HOLE_R   = 1.25; // M2.5 post radius
-  const piX = -15, piZ = 8; // world position of PCB centre
+  const piX = -5, piZ = -8; // world position: front half of enclosure, clear of battery
   const piPcbY = floorY + PI_STANDOFF + PI_H / 2;
   const piHoles = [
     [piX - 29, piZ - 11.5], [piX + 29, piZ - 11.5],
@@ -697,7 +934,8 @@ function updateEnclosure() {
   addStandoffs(mountGroup, piHoles, floorY, PI_STANDOFF, PI_HOLE_R);
   makeCompBox(compGroup, PI_W, PI_H, PI_D, piX, piPcbY, piZ, 0x1a3a1a,
     'Pi Zero 2W', '65×30mm',
-    ['ARM A53 1GHz', '512MB RAM', 'M2.5 × 4']);
+    ['ARM A53 1GHz', '512MB RAM', 'M2.5 × 4'],
+    '/static/components/pi_zero_2w.jpg');
 
   /* ───────────────────────────────────────────────────────────────────
    * Pi Camera Module v3 NoIR
@@ -724,10 +962,11 @@ function updateEnclosure() {
   // PCB sits flush against interior face of front wall
   const camPcbZ = -hD + t + CAM_PCB_T / 2;
 
-  // Camera PCB — vertical; top face (XY plane for thin PCB = face 5 -Z facing interior)
+  // Camera PCB — vertical; largest face = +Z/-Z (25×24mm) which gets PCB art + product photo
   makeCompBox(compGroup, CAM_W, CAM_H_PCB, CAM_PCB_T, camX, camPcbCentreY, camPcbZ, 0x1a2a3a,
     'Cam v3 NoIR', '25×24mm',
-    ['IMX708 12MP', 'No IR filter', 'M2 × 2']);
+    ['IMX708 12MP', 'No IR filter', 'M2 × 2'],
+    '/static/components/camera_v3_noir.jpg');
 
   // Lens barrel — centred on camX, camLensY, protruding outside
   const lensMat = new THREE.MeshStandardMaterial({ color: 0x111111, roughness: 0.3, metalness: 0.7 });
@@ -775,7 +1014,8 @@ function updateEnclosure() {
   // PCB box (vertical slab, largest face = +Y/-Y 32×24mm → auto-selects PCB art)
   makeCompBox(compGroup, PIR_W, PIR_H_PCB, PIR_PCB_T, pirX, pirPcbY, pirPcbZ, 0x3a2a1a,
     'HC-SR501 PIR', '32×24mm',
-    ['PIR Motion', 'GPIO 17', 'M2 × 2']);
+    ['PIR Motion', 'GPIO 17', 'M2 × 2'],
+    '/static/components/hc_sr501_pir.jpg');
 
   // Fresnel dome: hemisphere pointing outward (-Z direction) through front wall
   // SphereGeometry creates dome with pole at +Y, base at Y=0.
@@ -814,7 +1054,8 @@ function updateEnclosure() {
   addStandoffs(mountGroup, ampHoles, floorY, AMP_STANDOFF, AMP_HOLE_R);
   makeCompBox(compGroup, AMP_W, AMP_H, AMP_D, ampX, ampPcbY, ampZ, 0x2a1a3a,
     'MAX98357A', '19.4×17.8mm',
-    ['I2S Class-D', '3W Amp', 'M2.5 × 2']);
+    ['I2S Class-D', '3W Amp', 'M2.5 × 2'],
+    '/static/components/max98357a.jpg');
 
   /* ───────────────────────────────────────────────────────────────────
    * TP4056 LiPo Charger
@@ -830,7 +1071,8 @@ function updateEnclosure() {
 
   makeCompBox(compGroup, TP_W, TP_H, TP_D, tpX, tpPcbY, tpZ, 0x1a2a2a,
     'TP4056', '28×17mm',
-    ['LiPo Charger', 'USB-C In', 'Cradle Mount']);
+    ['LiPo Charger', 'USB-C In', 'Cradle Mount'],
+    '/static/components/tp4056.jpg');
 
   // Cradle: side rails + front/rear stops
   const cradleMat = new THREE.MeshStandardMaterial({ color: 0x2a3a2a, roughness: 0.6, metalness: 0.1 });
@@ -891,11 +1133,13 @@ function updateEnclosure() {
    * ~70 × 18 × 35 mm, placed in rear centre of enclosure
    */
   const BAT_W = 70, BAT_H = 18, BAT_D = 35;
+  // Battery in back half of enclosure — separated from Pi (which is at piZ=-8)
   const batZ  = hD - t - BAT_D / 2 - 3;
   const batX  = -5;
   makeCompBox(compGroup, BAT_W, BAT_H, BAT_D, batX, floorY + BAT_H / 2, batZ, 0x3a1a1a,
     '18650 LiPo', '70×35×18mm',
-    ['3.7V · 5000mAh', '~3 days', 'TP4056→5V']);
+    ['3.7V · 5000mAh', '~3 days', 'TP4056→5V'],
+    '/static/components/battery_18650.jpg');
 
   /* ════════════════════════════════════════════════
      FACE CUTOUT INDICATORS
@@ -928,6 +1172,90 @@ function updateEnclosure() {
   // USB-C port on right wall, at tpX height (TP4056 is near right wall)
   // USB-C: 9 mm wide × 3.3 mm tall slot
   makeMicroPort(cutoutGroup, 9, 3.3, rightWallX, tpPcbY + 1.5, tpZ, Math.PI / 2);
+
+  /* ════════════════════════════════════════════════════════════════
+     CSG WALL BUILDING WITH ACTUAL CUTOUT HOLES
+     ════════════════════════════════════════════════════════════════
+     Now that component positions are finalised, build each wall with
+     CSG boolean subtraction of lens/dome/speaker/USB-C holes.
+     Results are added to encGroup for rendering AND collected in
+     exportGeos for the merged export geometry.
+  ════════════════════════════════════════════════════════════════ */
+
+  // Helper: make a pre-translated geo (world space)
+  const boxGeoAt = (w2,h2,d2,tx,ty,tz) =>
+    geoAt(new THREE.BoxGeometry(w2,h2,d2), tx, ty, tz);
+  // Cylinder hole along Z (for front/back walls, thickness in Z)
+  const cylHoleZ = (r, len, tx, ty, tz) =>
+    geoAt(new THREE.CylinderGeometry(r, r, len, 36), tx, ty, tz, -Math.PI/2, 0, 0);
+  // Cylinder hole along X (for left/right walls, thickness in X)
+  const cylHoleX = (r, len, tx, ty, tz) =>
+    geoAt(new THREE.CylinderGeometry(r, r, len, 36), tx, ty, tz, 0, 0, -Math.PI/2);
+  // Box hole along X (USB-C slot on right wall)
+  const boxHoleX = (bw, bh, bd, tx, ty, tz) =>
+    geoAt(new THREE.BoxGeometry(t+4, bh, bd), tx, ty, tz);
+
+  const wallShell = shellMat;
+
+  // Floor (no holes)
+  makeWall(encGroup, wallShell(),
+    boxGeoAt(W, t, D, 0, t/2, 0),
+    [], exportGeos);
+
+  // Front wall: camera lens + PIR dome holes
+  makeWall(encGroup, wallShell(),
+    boxGeoAt(W, H, t, 0, hH, -hD + t/2),
+    [
+      cylHoleZ(CAM_LENS_R + 0.6, t + 4, camX, camLensY, -hD + t/2),
+      cylHoleZ(PIR_DOME_R + 1.6, t + 4, pirX, pirPcbY,  -hD + t/2),
+    ], exportGeos);
+
+  // Back wall (no holes)
+  makeWall(encGroup, wallShell(),
+    boxGeoAt(W, H, t, 0, hH, hD - t/2),
+    [], exportGeos);
+
+  // Left wall (no holes)
+  makeWall(encGroup, wallShell(),
+    boxGeoAt(t, H, D, -hW + t/2, hH, 0),
+    [], exportGeos);
+
+  // Right wall: speaker grille + USB-C slot
+  makeWall(encGroup, wallShell(),
+    boxGeoAt(t, H, D, hW - t/2, hH, 0),
+    [
+      cylHoleX(SPK_R + 1, t + 4, hW - t/2, spkY, spkZ),
+      boxHoleX(t+4, 3.6, 10, hW - t/2, tpPcbY + 1.5, tpZ),
+    ], exportGeos);
+
+  // Lid corner boss columns (solid additions — no CSG needed)
+  {
+    const lidMat2 = () => new THREE.MeshStandardMaterial({ color: 0x3a4a3a, roughness: 0.6, metalness: 0.1 });
+    const bossCx = hW - t - 6, bossCz = hD - t - 6;
+    [[bossCx, bossCz],[-bossCx, bossCz],[bossCx,-bossCz],[-bossCx,-bossCz]].forEach(([bx, bz]) => {
+      makeCyl(encGroup, 5, 5, H - t, bx, t + (H-t)/2, bz, lidMat2());
+      const holeMat = new THREE.MeshBasicMaterial({ color: 0x888888, side: THREE.DoubleSide });
+      const holeM = new THREE.Mesh(new THREE.CircleGeometry(1.5, 16), holeMat);
+      holeM.rotation.x = -Math.PI/2;
+      holeM.position.set(bx, H + 0.1, bz);
+      encGroup.add(holeM);
+    });
+  }
+
+  /* Merge all wall geometries into a single exportGeometry */
+  try {
+    const merged = BufferGeometryUtils.mergeGeometries(exportGeos, false);
+    exportGeometry = BufferGeometryUtils.mergeVertices(merged, 1e-3);
+    exportGeometry.computeVertexNormals();
+    // Enable export buttons
+    document.getElementById('btn-export-stl').disabled = false;
+    document.getElementById('btn-export-3mf').disabled = false;
+  } catch(e) {
+    console.warn('[Export] Geometry merge failed:', e);
+  }
+
+  /* Re-apply tessellation overlay if active */
+  if (tessMode) applyTessMode(true);
 
   updateInfo(p);
 }
@@ -977,6 +1305,41 @@ opacityInput.addEventListener('input', () => {
 
 ['ctrl-components','ctrl-mounts','ctrl-cutouts'].forEach(id => {
   document.getElementById(id).addEventListener('change', updateEnclosure);
+});
+
+// Tessellation toggle
+const tessBtn = document.getElementById('btn-tess');
+tessBtn.addEventListener('click', () => {
+  const on = !tessMode;
+  applyTessMode(on);
+  tessBtn.textContent = on ? 'Tessellation: ON' : 'Tessellation: OFF';
+  tessBtn.style.background = on ? '#0a1a0a' : '#1a2a1a';
+  tessBtn.style.color      = on ? '#aaffaa' : '#6abf69';
+});
+
+// Export buttons
+function setExportStatus(msg) {
+  document.getElementById('export-status').textContent = msg;
+}
+
+document.getElementById('btn-export-stl').addEventListener('click', () => {
+  if (!exportGeometry) return setExportStatus('Build not ready yet.');
+  try {
+    setExportStatus('Generating STL…');
+    const buf = geometryToSTL(exportGeometry);
+    downloadFile(buf, 'deerhunter-enclosure.stl', 'application/octet-stream');
+    setExportStatus('STL downloaded.');
+  } catch(e) { setExportStatus('STL error: ' + e.message); }
+});
+
+document.getElementById('btn-export-3mf').addEventListener('click', () => {
+  if (!exportGeometry) return setExportStatus('Build not ready yet.');
+  try {
+    setExportStatus('Generating 3MF…');
+    const zip = geometryTo3MF(exportGeometry);
+    downloadFile(zip, 'deerhunter-enclosure.3mf', 'application/octet-stream');
+    setExportStatus('3MF downloaded.');
+  } catch(e) { setExportStatus('3MF error: ' + e.message); }
 });
 
 /* ── Resize ── */
