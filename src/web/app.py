@@ -417,6 +417,20 @@ def _processor_loop(confidence: float = 0.40) -> None:
                     _pipeline_detected_at = now
                     _hw_state["audio_playing"] = True
                     _hw_state["audio_started_at"] = now
+                    # Play deterrent audio — read config from first matching rule
+                    try:
+                        from src.actions.audio import play_audio
+                        cfg = _load_config()
+                        audio_cfg = next(
+                            (a for r in cfg.get("rules", [])
+                             for a in r.get("actions", [])
+                             if a.get("type") == "audio"),
+                            {"file": "predator_call.wav", "volume": 90},
+                        )
+                        threading.Thread(target=play_audio, args=(audio_cfg,),
+                                         daemon=True).start()
+                    except Exception as e:
+                        logger.warning("Audio dispatch error: %s", e)
                     _detected_frame = jpeg
                     try:
                         SNAPSHOTS_DIR.mkdir(parents=True, exist_ok=True)

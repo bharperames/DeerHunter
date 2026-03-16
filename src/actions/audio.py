@@ -1,27 +1,29 @@
 """
-Audio deterrent action: plays a .wav file via pygame or aplay.
+Audio deterrent action: plays a .wav file via afplay (macOS), pygame, or aplay (Linux).
 
 Config keys:
   file      - filename relative to sounds/ directory
-  volume    - 0-100 (pygame) or passed to aplay via amixer
+  volume    - 0-100
 """
 
 import logging
 import os
 import subprocess
+import sys
 from pathlib import Path
 
 logger = logging.getLogger(__name__)
 
-SOUNDS_DIR = Path(__file__).resolve().parents[3] / "sounds"
+SOUNDS_DIR = Path(__file__).resolve().parents[2] / "sounds"
 
-try:
-    import pygame
-    pygame.mixer.init()
-    _PYGAME_AVAILABLE = True
-except Exception:
-    _PYGAME_AVAILABLE = False
-    logger.warning("pygame not available — will use aplay fallback")
+_PYGAME_AVAILABLE = False
+if sys.platform != "darwin":
+    try:
+        import pygame
+        pygame.mixer.init()
+        _PYGAME_AVAILABLE = True
+    except Exception:
+        logger.warning("pygame not available — will use aplay fallback")
 
 
 def play_audio(config: dict) -> None:
@@ -36,21 +38,28 @@ def play_audio(config: dict) -> None:
 
     logger.info("Playing audio: %s at volume %d%%", filename, volume)
 
+    # macOS: afplay
+    if sys.platform == "darwin":
+        vol_arg = str(volume / 100.0 * 2.0)  # afplay -v range 0-2
+        try:
+            subprocess.run(["afplay", "-v", vol_arg, str(sound_path)], check=True)
+        except Exception as e:
+            logger.error("afplay failed: %s", e)
+        return
+
+    # Linux: try pygame first, then aplay
     if _PYGAME_AVAILABLE:
         try:
             pygame.mixer.music.load(str(sound_path))
             pygame.mixer.music.set_volume(volume / 100.0)
             pygame.mixer.music.play()
-            # Block until done so thread lifecycle is clean
             while pygame.mixer.music.get_busy():
                 pygame.time.wait(100)
             return
         except Exception as e:
             logger.warning("pygame playback failed (%s), trying aplay", e)
 
-    # aplay fallback
     try:
-        # Set volume via amixer (best-effort)
         subprocess.run(
             ["amixer", "sset", "Master", f"{volume}%"],
             capture_output=True, check=False
