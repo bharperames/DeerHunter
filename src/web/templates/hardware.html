@@ -1,29 +1,69 @@
 {% extends "base.html" %}
 {% block title %}Hardware — DeerHunter{% endblock %}
+
+{# ── Video loader + restart injected into the nav bar ── #}
+{% block nav_extra %}
+<form id="video-load-form"
+      hx-post="/api/load-video"
+      hx-target="#video-load-status"
+      hx-swap="innerHTML"
+      hx-encoding="multipart/form-data"
+      hx-on::after-request="if(event.detail.successful) { reloadStreams(); }"
+      class="nav-loader">
+  <input type="file" id="video-file-input" name="video_file"
+         accept="video/*,.mp4,.mov,.avi,.mkv,.webm"
+         style="display:none"
+         onchange="document.getElementById('video-file-label').textContent = this.files[0]?.name ?? ''; this.form.requestSubmit();">
+  <input type="number" name="motion_threshold" id="motion-threshold-input"
+         value="{{ current_threshold }}" step="0.001" min="0.001" max="1"
+         title="Motion threshold (0–1)"
+         class="nav-input nav-input--num">
+  <button type="button" class="nav-btn"
+          onclick="document.getElementById('video-file-input').click()">Load</button>
+  <button type="button" class="nav-btn nav-btn--ghost"
+          hx-post="/live/restart"
+          hx-swap="none"
+          onclick="reloadStreams()">&#8635;</button>
+  <span id="video-file-label" class="nav-status nav-file-label">{% if current_video_name %}{{ current_video_name }}{% endif %}</span>
+  <span id="video-load-status" class="nav-status"></span>
+</form>
+{% endblock %}
+
 {% block content %}
-<h1>Hardware Monitor</h1>
 
-{# ── Top section: camera feed + trigger events (like live page) ── #}
-<div class="live-layout">
-
-  <div class="live-left">
-    <div class="hw-cam-label">
-      <span class="dot dot-live"></span>
-      <span>Pi Camera v3 NoIR — CSI live feed · YOLOWorld inference</span>
-    </div>
-    <div class="frame-box">
-      <img id="hw-frame" src="/stream" alt="Camera feed" class="live-frame">
-    </div>
-    <div id="status-bar">
-      <span>Detections overlaid in red</span>
-      <button class="btn-restart"
-              hx-post="/live/restart"
-              hx-swap="none"
-              onclick="restartHwStream()">&#8635; Restart</button>
+{# ── Static dual video feeds — live MJPEG connections, never re-polled ── #}
+<div class="dual-feed" style="margin-top:0;">
+  <div class="feed-panel">
+    <div class="feed-video-box">
+      <img id="hw-frame-raw" src="/stream/raw"
+           style="width:100%;height:100%;object-fit:cover;display:block;" alt="raw feed"/>
     </div>
   </div>
+  <div class="feed-panel">
+    <div class="feed-video-box feed-video-box--camera" id="camera-feed-box">
+      <img id="hw-frame" src="/stream"
+           style="width:100%;height:100%;object-fit:cover;display:block;" alt="camera feed"/>
+      <div id="cam-detected-overlay" class="cam-detected-overlay" style="display:none;">
+        <span class="cam-detected-label">Subject detected, recording<span class="ellipsis-dots"><span>.</span><span>.</span><span>.</span></span></span>
+      </div>
+    </div>
+  </div>
+</div>
 
-  <aside class="det-panel">
+{# ── GPIO diagram + pipeline + pinout (polled every 400 ms) ── #}
+<div id="hw-panel"
+     hx-get="/api/hw"
+     hx-trigger="every 400ms"
+     hx-swap="innerHTML">
+  <p class="det-empty">Loading hardware state…</p>
+</div>
+
+{# ── Detection trigger events — collapsed by default ── #}
+<details style="margin-top:0.4rem;">
+  <summary style="cursor:pointer;font-size:0.75rem;color:#666;padding:0.3rem 0;list-style:none;display:flex;align-items:center;gap:0.4rem;">
+    <span style="font-size:0.65rem;">▶</span> Trigger Events
+  </summary>
+  <aside class="det-panel" style="margin-top:0.3rem;max-height:120px;">
     <div class="det-header">
       <span>Trigger Events</span>
       <span class="det-cooldown">5 s cooldown</span>
@@ -35,25 +75,16 @@
       <p class="det-empty">No detections yet</p>
     </div>
   </aside>
-
-</div>
-
-{# ── Bottom section: GPIO + motion + pipeline (polled every 400 ms) ── #}
-<div id="hw-panel"
-     hx-get="/api/hw"
-     hx-trigger="every 400ms"
-     hx-swap="innerHTML"
-     style="margin-top:1rem;">
-  <p class="det-empty">Loading hardware state…</p>
-</div>
+</details>
 
 <script>
-  const hwFrame = document.getElementById('hw-frame');
-  hwFrame.onerror = function() {
-    setTimeout(function() { hwFrame.src = '/stream?' + Date.now(); }, 2000);
-  };
-  function restartHwStream() {
-    setTimeout(function() { hwFrame.src = '/stream?' + Date.now(); }, 300);
+  // Streams live inside the HTMX-polled hw-panel; force an immediate re-poll
+  // so load/restart take effect without waiting up to 400 ms.
+  function reloadStreams() {
+    setTimeout(function() {
+      var panel = document.getElementById('hw-panel');
+      if (panel) htmx.trigger(panel, 'revealed');
+    }, 350);
   }
 </script>
 {% endblock %}

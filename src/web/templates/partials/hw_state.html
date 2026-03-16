@@ -3,213 +3,262 @@
 {% set pir_stroke  = '2.5'     if pir_active else '1.2' %}
 {% set pir_label   = 'MOTION'  if pir_active else 'STANDBY' %}
 
-<div class="hw-grid">
+{% set display_pipeline = 'DETECTED' if (audio_playing or recording) else pipeline %}
+{% set pi_on       = display_pipeline != 'IDLE' %}
+{% set pir_box_on  = pir_active or pi_on %}
+{% set pi_fill     = '#0c1a0c' if pi_on else '#111' %}
+{% set pi_stroke   = '#2a6a2a' if pi_on else '#3a3a3a' %}
+{% set pi_title_c  = '#6abf69' if pi_on else '#555' %}
+{% set pi_sub_c    = '#7aaa7a' if pi_on else '#444' %}
+{% set pi_det_c    = '#5a8a5a' if pi_on else '#333' %}
+{% set pi_hdr_f    = '#1a4a1a' if pi_on else '#1a1a1a' %}
+{% set pi_hdr_s    = '#2a6a2a' if pi_on else '#2a2a2a' %}
+{% set pi_hdr_bg   = '#122012' if pi_on else '#111' %}
+{% set csi_color   = '#4499ff' if pi_on else '#333' %}
+{% set i2s_color   = '#666'    if pi_on else '#333' %}
 
-  {# ── GPIO Block Diagram ─────────────────────────────────────────────────── #}
-  <section class="hw-card hw-card--wide">
-    <div class="hw-card-title">GPIO Interface</div>
-    <svg viewBox="0 0 480 305" class="gpio-svg" role="img" aria-label="Hardware block diagram">
+{% set ssd_active  = pipeline == 'DETECTED' or recording %}
+{% set ssd_fill    = '#0a1525' if ssd_active else '#111' %}
+{% set ssd_stroke  = '#2255bb' if ssd_active else '#333' %}
+{% set ssd_title_c = '#5599ee' if ssd_active else '#555' %}
+{% set ssd_sub_c   = '#4477bb' if ssd_active else '#3a3a3a' %}
+{% set usb_color   = '#4477bb' if ssd_active else '#333' %}
 
-      {# ── Camera v3 NoIR (top) — portrait thumbnail ─────────────────────── #}
-      {# Box: w=100, h=170 giving roughly the video's portrait aspect ratio   #}
-      <rect x="170" y="4" width="100" height="170" rx="5"
-            fill="#0f1520" stroke="#4466aa" stroke-width="1.5"/>
-      {# Live snapshot — portrait container matching 674×1194 video ratio     #}
-      <foreignObject x="172" y="6" width="96" height="148">
-        <div xmlns="http://www.w3.org/1999/xhtml"
-             style="width:100%;height:100%;overflow:hidden;border-radius:3px;background:#000;">
-          <img src="/snapshot/current?t={{ ts }}"
-               style="width:100%;height:100%;object-fit:cover;display:block;"
-               alt="camera feed"/>
+{# ── SVG layout ────────────────────────────────────────────────────────────
+   Left col : PIR (full row 1), Solar | Battery (row 2)  x=4–134
+   Centre   : Pi (row 1), SSD (row 2)                    x=290–410
+   Right    : Amp | Speaker (row 1), WiFi (row 2)        x=468–692
+   ─────────────────────────────────────────────────────────────────────── #}
+{% set pi_cx    = 350 %}
+{% set pi_left  = pi_cx - 60 %}   {# 290 #}
+{% set pi_right = pi_cx + 60 %}   {# 410 #}
+{% set pi_y     = 30 %}
+{% set pi_gy    = pi_y + 20 %}    {# 50  PIR dot #}
+{% set i2s_dy   = pi_y + 34 %}    {# 64  I2S dot #}
+{% set usb_y    = pi_y + 72 %}    {# 102 USB dot #}
+{% set ssd_y    = 116 %}
+{% set bat_y    = 90 %}           {# battery / solar row — same y #}
+{% set svg_h    = 184 %}
+
+{# ── Hardware block diagram ───────────────────────────────────────────────── #}
+<section class="hw-card hw-card--wide" style="padding:0.5rem 0.75rem;">
+
+  <svg viewBox="0 0 700 {{ svg_h }}" class="gpio-svg" role="img" aria-label="Hardware block diagram">
+
+    {# CSI arrow: camera feed (above) → Pi ───────────────────────────────── #}
+    <line x1="{{ pi_cx }}" y1="0" x2="{{ pi_cx }}" y2="{{ pi_y }}"
+          stroke="{{ csi_color }}" stroke-width="1.5"/>
+    <polygon points="{{ pi_cx }},{{ pi_y }} {{ pi_cx - 4 }},{{ pi_y - 8 }} {{ pi_cx + 4 }},{{ pi_y - 8 }}"
+             fill="{{ csi_color }}"/>
+    <text x="{{ pi_cx + 5 }}" y="8" font-size="7" fill="{{ csi_color }}">CSI · Camera v3 NoIR</text>
+
+    {# ── PIR → Pi wire ─────────────────────────────────────────────────── #}
+    <polyline points="134,45 200,45 200,{{ pi_gy }} {{ pi_left }},{{ pi_gy }}"
+              fill="none" stroke="{{ pir_color }}" stroke-width="{{ pir_stroke }}"/>
+    <text x="167" y="40" text-anchor="middle" font-size="8" fill="{{ pir_color }}">GPIO 17</text>
+    {% if pir_active %}
+    <polyline points="155,45 160,35 165,55 170,35 175,55 180,45"
+              fill="none" stroke="{{ pir_color }}" stroke-width="1.2" opacity="0.8"/>
+    {% endif %}
+
+    {# ── PIR / Motion Detector ─────────────────────────────────────────── #}
+    <rect x="4" y="10" width="130" height="70" rx="5"
+          fill="{{ '#0c1a0c' if pir_box_on else '#111' }}"
+          stroke="{{ '#6abf69' if pir_box_on else '#3a3a3a' }}"
+          stroke-width="{{ '2' if pir_box_on else '1.2' }}"
+          {% if pir_box_on %}style="filter:drop-shadow(0 0 6px #3a8a3a);"{% endif %}/>
+    <text x="69" y="28" text-anchor="middle" font-size="11" fill="{{ '#6abf69' if pir_box_on else '#aaa' }}" font-weight="700">Motion Detector</text>
+    <text x="69" y="42" text-anchor="middle" font-size="10" fill="#fff">HC-SR501 PIR</text>
+    <text x="69" y="56" text-anchor="middle" font-size="10" fill="{{ pir_color }}">{{ pir_label }}</text>
+    <text x="69" y="70" text-anchor="middle" font-size="9"  fill="#fff">GPIO 17 · ~50µA</text>
+
+    {# ── Pi Zero 2W board ──────────────────────────────────────────────── #}
+    <rect x="{{ pi_left }}" y="{{ pi_y }}" width="120" height="75" rx="6"
+          fill="{{ pi_fill }}" stroke="{{ pi_stroke }}" stroke-width="1.5"/>
+    <text x="{{ pi_cx }}" y="{{ pi_y + 21 }}" text-anchor="middle" font-size="12" fill="{{ pi_title_c }}" font-weight="700">Pi Zero 2W</text>
+    <text x="{{ pi_cx }}" y="{{ pi_y + 34 }}" text-anchor="middle" font-size="9"  fill="#fff">Main Computer · SC0510</text>
+    <text x="{{ pi_cx }}" y="{{ pi_y + 45 }}" text-anchor="middle" font-size="8"  fill="#fff">ARM · 512MB · 2.4GHz WiFi</text>
+    {% for i in range(6) %}
+    <rect x="{{ pi_left - 2 }}" y="{{ pi_y + 7 + i * 10 }}" width="4" height="7" rx="1" fill="{{ pi_hdr_f }}" stroke="{{ pi_hdr_s }}" stroke-width="0.5"/>
+    <rect x="{{ pi_left - 6 }}" y="{{ pi_y + 7 + i * 10 }}" width="3" height="7" rx="1" fill="{{ pi_hdr_bg }}"/>
+    {% endfor %}
+    <rect x="{{ pi_cx - 16 }}" y="{{ pi_y - 3 }}" width="32" height="5" rx="1" fill="#222" stroke="#444" stroke-width="0.5"/>
+    <circle cx="{{ pi_left }}" cy="{{ pi_gy }}" r="4.5" fill="{{ pir_color }}"
+            {% if pir_active %}style="filter:drop-shadow(0 0 5px #6abf69);"{% endif %}/>
+    <circle cx="{{ pi_right }}" cy="{{ i2s_dy }}" r="3.5" fill="{{ i2s_color }}" stroke="#444"/>
+    <circle cx="{{ pi_cx }}" cy="{{ usb_y }}" r="3.5" fill="{{ usb_color }}" stroke="#444"/>
+    <line x1="{{ pi_cx }}" y1="{{ usb_y + 4 }}" x2="{{ pi_cx }}" y2="{{ ssd_y }}"
+          stroke="{{ usb_color }}" stroke-width="1.5"/>
+    <text x="{{ pi_cx + 4 }}" y="{{ usb_y + 12 }}" font-size="7" fill="{{ usb_color }}">USB OTG</text>
+
+    {# ── Battery → Pi dashed power rail ───────────────────────────────── #}
+    <polyline points="134,{{ bat_y + 27 }} 200,{{ bat_y + 27 }} 200,{{ pi_y + 45 }} {{ pi_left }},{{ pi_y + 45 }}"
+              fill="none" stroke="#cc5533" stroke-width="1" stroke-dasharray="4,3"/>
+
+    {# ── Solar Panel (left of Battery) ────────────────────────────────── #}
+    <rect x="4" y="{{ bat_y }}" width="60" height="54" rx="5"
+          fill="#0e0900" stroke="#664422" stroke-width="1.2"/>
+    <text x="34" y="{{ bat_y + 17 }}" text-anchor="middle" font-size="10" fill="#aa6633" font-weight="600">Solar</text>
+    <text x="34" y="{{ bat_y + 30 }}" text-anchor="middle" font-size="8"  fill="#fff">6V · 200mA</text>
+    <text x="34" y="{{ bat_y + 43 }}" text-anchor="middle" font-size="7"  fill="#fff">→ TP4056</text>
+
+    {# Solar → Battery arrow (horizontal) #}
+    <line x1="64" y1="{{ bat_y + 27 }}" x2="68" y2="{{ bat_y + 27 }}"
+          stroke="#885533" stroke-width="1.2"/>
+    <polygon points="68,{{ bat_y + 27 }} 63,{{ bat_y + 23 }} 63,{{ bat_y + 31 }}" fill="#885533"/>
+
+    {# ── LiPo Battery (right of Solar) ────────────────────────────────── #}
+    <rect x="68" y="{{ bat_y }}" width="66" height="54" rx="5"
+          fill="#111" stroke="#663322" stroke-width="1.2"/>
+    <text x="101" y="{{ bat_y + 17 }}" text-anchor="middle" font-size="10" fill="#cc7755" font-weight="600">Battery</text>
+    <text x="101" y="{{ bat_y + 30 }}" text-anchor="middle" font-size="8"  fill="#fff">3.7V · ~5Ah</text>
+    <text x="101" y="{{ bat_y + 43 }}" text-anchor="middle" font-size="7"  fill="#fff">5V Boost → Pi</text>
+
+    {# ── SSD ──────────────────────────────────────────────────────────── #}
+    <rect x="{{ pi_left }}" y="{{ ssd_y }}" width="120" height="58" rx="5"
+          fill="{{ ssd_fill }}" stroke="{{ ssd_stroke }}" stroke-width="1.5"/>
+    <g fill="{{ ssd_fill }}" stroke="{{ ssd_stroke }}" stroke-width="0.8">
+      <rect x="{{ pi_left + 5 }}" y="{{ ssd_y + 5 }}" width="18" height="12" rx="2"/>
+      <line x1="{{ pi_left + 7 }}"  y1="{{ ssd_y + 9 }}"  x2="{{ pi_left + 21 }}" y2="{{ ssd_y + 9 }}"/>
+      <line x1="{{ pi_left + 7 }}"  y1="{{ ssd_y + 13 }}" x2="{{ pi_left + 21 }}" y2="{{ ssd_y + 13 }}"/>
+      <circle cx="{{ pi_left + 20 }}" cy="{{ ssd_y + 7 }}" r="1.5" fill="{{ ssd_stroke }}" stroke="none"/>
+    </g>
+    <text x="{{ pi_cx }}" y="{{ ssd_y + 20 }}" text-anchor="middle" font-size="11" fill="{{ ssd_title_c }}" font-weight="700">USB SSD</text>
+    <text x="{{ pi_cx }}" y="{{ ssd_y + 32 }}" text-anchor="middle" font-size="9"  fill="#fff">256 GB · USB 2.0 OTG</text>
+    {% if ssd_active %}
+    <text x="{{ pi_cx }}" y="{{ ssd_y + 44 }}" text-anchor="middle" font-size="8" fill="#5599ee" font-weight="600">SAVING CLIP…</text>
+    {% else %}
+    <text x="{{ pi_cx }}" y="{{ ssd_y + 44 }}" text-anchor="middle" font-size="8" fill="#fff">video clips · snapshots</text>
+    {% endif %}
+
+    {# ── I2S wire: Pi right → Amplifier ───────────────────────────────── #}
+    <polyline points="{{ pi_right }},{{ i2s_dy }} 440,{{ i2s_dy }} 440,43 468,43"
+              fill="none" stroke="{{ i2s_color }}" stroke-width="1"/>
+    <text x="425" y="{{ i2s_dy - 4 }}" text-anchor="middle" font-size="7" fill="{{ i2s_color }}">I2S</text>
+
+    {# ── Amplifier ─────────────────────────────────────────────────────── #}
+    <rect x="468" y="10" width="120" height="66" rx="5"
+          fill="#111" stroke="{{ i2s_color }}" stroke-width="1"/>
+    <text x="528" y="27" text-anchor="middle" font-size="11" fill="{{ '#bbb' if pi_on else '#444' }}" font-weight="700">Amplifier</text>
+    <text x="528" y="39" text-anchor="middle" font-size="8"  fill="{{ '#fff' if pi_on else '#888' }}">MAX98357A I2S</text>
+    <text x="528" y="50" text-anchor="middle" font-size="8"  fill="{{ '#fff' if pi_on else '#888' }}">GPIO 18/19/21</text>
+    <text x="528" y="61" text-anchor="middle" font-size="8"  fill="{{ '#fff' if pi_on else '#888' }}">3W Class-D</text>
+    <text x="528" y="70" text-anchor="middle" font-size="7"  fill="{{ i2s_color }}">I2S digital audio</text>
+
+    {# Amp → Speaker (horizontal wire) #}
+    <line x1="588" y1="43" x2="596" y2="43" stroke="#888" stroke-width="1"/>
+
+    {# ── Speaker (right of Amplifier) ─────────────────────────────────── #}
+    <rect x="596" y="10" width="96" height="66" rx="5"
+          fill="#111" stroke="{{ '#5a8a5a' if audio_playing else '#3a3a3a' }}" stroke-width="1"/>
+    <polygon points="603,34 609,34 617,28 617,58 609,52 603,52"
+             fill="#2a2a2a" stroke="#888" stroke-width="1"/>
+    <g class="speaker-waves {{ 'speaker-waves--active' if audio_playing else '' }}">
+      <path class="w1" d="M619,38 C622,38 622,48 619,48" fill="none" stroke="#888" stroke-width="1.2"/>
+      <path class="w2" d="M623,35 C627,35 627,51 623,51" fill="none" stroke="#888" stroke-width="1.1"/>
+      <path class="w3" d="M627,33 C632,33 632,53 627,53" fill="none" stroke="#888" stroke-width="1"/>
+    </g>
+    <text x="659" y="37" text-anchor="middle" font-size="9"  fill="{{ '#9ade99' if audio_playing else '#aaa' }}" font-weight="{{ '700' if audio_playing else '400' }}">8Ω Spkr</text>
+    {% if audio_playing %}
+    <text x="659" y="52" text-anchor="middle" font-size="8" fill="#6abf69">PLAYING</text>
+    <text x="659" y="63" text-anchor="middle" font-size="7" fill="#6abf69">5s blast</text>
+    {% else %}
+    <text x="659" y="52" text-anchor="middle" font-size="8" fill="#fff">3W · USB</text>
+    {% endif %}
+
+    {# ── WiFi / ntfy ───────────────────────────────────────────────────── #}
+    <rect x="468" y="82" width="224" height="88" rx="5"
+          fill="#111" stroke="#334466" stroke-width="1.2"/>
+    <text x="580" y="100" text-anchor="middle" font-size="12" fill="#6699cc" font-weight="600">WiFi 2.4 GHz</text>
+    <text x="580" y="114" text-anchor="middle" font-size="10" fill="#fff">→ ntfy.sh push alerts</text>
+    <text x="580" y="127" text-anchor="middle" font-size="10" fill="#fff">→ Web dashboard :8080</text>
+    <text x="580" y="140" text-anchor="middle" font-size="9"  fill="#fff">802.11b/g/n · 2.4GHz</text>
+    <text x="580" y="153" text-anchor="middle" font-size="9"  fill="#fff">→ SSH remote access</text>
+
+  </svg>
+
+  {# ── Bottom row: pipeline state (left) + pinout chip (right) ─────────── #}
+  <div style="display:flex;justify-content:space-between;align-items:center;margin-top:0.25rem;gap:0.75rem;">
+
+    {# Pipeline state indicators — lower left #}
+    <div class="pipeline-mini-row">
+      <div class="pipeline" style="margin-bottom:0.3rem;">
+        {% for step, label, icon in [
+            ('IDLE',      'Idle',      '○'),
+            ('MOTION',    'Motion',    '◉'),
+            ('DETECTING', 'Detecting', '⊙'),
+            ('DETECTED',  'Detected',  '●'),
+        ] %}
+        <div class="pipe-col">
+          <div class="pipe-step {{ 'pipe-step--active' if display_pipeline == step else '' }}
+                                 {{ 'pipe-step--detected' if step == 'DETECTED' and display_pipeline == step else '' }}">
+            <span class="pipe-icon">{{ icon }}</span>
+            <span class="pipe-label">{{ label }}</span>
+          </div>
+          {% if not loop.last %}<div class="pipe-arrow-wrap"><div class="pipe-arrow">›</div></div>{% endif %}
         </div>
-      </foreignObject>
-      <text x="220" y="163" text-anchor="middle" font-size="8" fill="#aaccff" font-weight="700">Pi Camera v3 NoIR</text>
-      <text x="220" y="172" text-anchor="middle" font-size="6.5" fill="#6699cc">12 MP · No IR-cut  SC0872</text>
-      {# CSI line from camera bottom to Pi top #}
-      <line x1="220" y1="174" x2="220" y2="185" stroke="#4499ff" stroke-width="1.5"/>
-      <text x="224" y="181" font-size="6" fill="#4499ff">CSI</text>
-
-      {# ── Pi Zero 2W board (centre) ──────────────────────────────────────── #}
-      <rect x="180" y="185" width="120" height="80" rx="6"
-            fill="#0b1f0b" stroke="#2a6a2a" stroke-width="1.5"/>
-      <text x="240" y="218" text-anchor="middle" font-size="11" fill="#6abf69" font-weight="700">Pi Zero 2W</text>
-      <text x="240" y="231" text-anchor="middle" font-size="7" fill="#7aaa7a">Main Computer · SC0510</text>
-      <text x="240" y="242" text-anchor="middle" font-size="6.5" fill="#5a8a5a">ARM · 512MB · 2.4GHz WiFi</text>
-      {# 40-pin header dots on left edge #}
-      {% for i in range(6) %}
-      <rect x="178" y="{{ 191 + i * 10 }}" width="4" height="7" rx="1" fill="#1a4a1a" stroke="#2a6a2a" stroke-width="0.5"/>
-      <rect x="174" y="{{ 191 + i * 10 }}" width="3" height="7" rx="1" fill="#122012"/>
-      {% endfor %}
-      {# CSI connector (top of board) #}
-      <rect x="204" y="182" width="32" height="5" rx="1" fill="#222" stroke="#444" stroke-width="0.5"/>
-
-      {# GPIO 17 pin indicator dot #}
-      <circle cx="180" cy="203" r="4.5" fill="{{ pir_color }}"
-              {% if pir_active %}style="filter:drop-shadow(0 0 5px #6abf69);"{% endif %}/>
-
-      {# ── PIR sensor (left) ──────────────────────────────────────────────── #}
-      <line x1="90" y1="203" x2="175" y2="203"
-            stroke="{{ pir_color }}" stroke-width="{{ pir_stroke }}"/>
-      <text x="132" y="198" text-anchor="middle" font-size="6.5" fill="{{ pir_color }}">GPIO 17</text>
-      {% if pir_active %}
-      <polyline points="98,203 103,193 108,213 113,193 118,213 123,203"
-                fill="none" stroke="{{ pir_color }}" stroke-width="1.2" opacity="0.8"/>
-      {% endif %}
-      <rect x="4" y="183" width="84" height="44" rx="5"
-            fill="#111" stroke="{{ '#3a8a3a' if pir_active else '#3a3a3a' }}" stroke-width="1.2"/>
-      <text x="46" y="197" text-anchor="middle" font-size="8" fill="{{ '#e0e0e0' if pir_active else '#aaa' }}" font-weight="700">Motion Detector</text>
-      <text x="46" y="207" text-anchor="middle" font-size="7" fill="{{ '#e0e0e0' if pir_active else '#999' }}">HC-SR501 PIR</text>
-      <text x="46" y="217" text-anchor="middle" font-size="7" fill="{{ pir_color }}">{{ pir_label }}</text>
-      <text x="46" y="226" text-anchor="middle" font-size="6" fill="#777">GPIO 17 (BCM) · ~50µA</text>
-
-      {# ── Speaker / Amp (right) ──────────────────────────────────────────── #}
-      <circle cx="300" cy="220" r="3.5" fill="#666" stroke="#444"/>
-      <line x1="304" y1="220" x2="368" y2="220" stroke="#666" stroke-width="1"/>
-      <text x="336" y="215" text-anchor="middle" font-size="6.5" fill="#888">I2S (GPIO 18/19/21)</text>
-      <rect x="370" y="200" width="106" height="44" rx="5"
-            fill="#111" stroke="#3a3a3a" stroke-width="1"/>
-      <text x="423" y="214" text-anchor="middle" font-size="8" fill="#bbb" font-weight="700">I2S Amplifier</text>
-      <text x="423" y="224" text-anchor="middle" font-size="7" fill="#aaa">MAX98357A · Adafruit #3006</text>
-      <text x="423" y="234" text-anchor="middle" font-size="7" fill="#777">3W Class-D · IDLE</text>
-      <text x="423" y="243" text-anchor="middle" font-size="6" fill="#666">→ 3W 8Ω Speaker</text>
-
-      {# ── Power supply (bottom-left) ─────────────────────────────────────── #}
-      <line x1="193" y1="265" x2="118" y2="278" stroke="#cc5533" stroke-width="1" stroke-dasharray="5,3"/>
-      <text x="82" y="286" text-anchor="middle" font-size="7.5" fill="#cc7755" font-weight="600">Power System</text>
-      <text x="82" y="296" text-anchor="middle" font-size="7" fill="#aa5533">5V Boost · TP4056 · 18650 LiPo</text>
-      <text x="82" y="305" text-anchor="middle" font-size="6.5" fill="#885533">6V Solar → Battery → Pi</text>
-
-      {# ── WiFi / ntfy (bottom-right) ─────────────────────────────────────── #}
-      <line x1="272" y1="265" x2="347" y2="278" stroke="#5599cc" stroke-width="1" stroke-dasharray="4,3"/>
-      <text x="386" y="286" text-anchor="middle" font-size="7.5" fill="#6699cc" font-weight="600">WiFi 2.4 GHz</text>
-      <text x="386" y="296" text-anchor="middle" font-size="7" fill="#4477aa">→ ntfy.sh push notifications</text>
-      <text x="386" y="305" text-anchor="middle" font-size="6.5" fill="#335588">→ Web dashboard :8080</text>
-
-    </svg>
-
-    {# Pin state strip #}
-    <div class="pin-strip">
-      <div class="pin-row {{ 'pin-row--active' if pir_active else '' }}">
-        <span class="pin-num">11</span>
-        <span class="pin-sig">GPIO 17</span>
-        <span class="pin-role">PIR signal</span>
-        <span class="pin-state {{ 'pin-state--hi' if pir_active else '' }}">{{ 'HIGH' if pir_active else 'LOW' }}</span>
-        <span class="pin-volt">{{ '3.3 V' if pir_active else '0 V' }}</span>
+        {% endfor %}
       </div>
-      <div class="pin-row">
-        <span class="pin-num">CSI</span>
-        <span class="pin-sig">Camera</span>
-        <span class="pin-role">Video stream</span>
-        <span class="pin-state pin-state--hi">ACTIVE</span>
-        <span class="pin-volt">—</span>
-      </div>
-      <div class="pin-row">
-        <span class="pin-num">12/35/40</span>
-        <span class="pin-sig">I2S</span>
-        <span class="pin-role">Audio out</span>
-        <span class="pin-state">IDLE</span>
-        <span class="pin-volt">0 V</span>
-      </div>
-    </div>
-  </section>
-
-  {# ── Motion Level ──────────────────────────────────────────────────────── #}
-  <section class="hw-card">
-    <div class="hw-card-title">Motion Level
-      <span class="hw-badge {{ 'hw-badge--active' if pir_active else '' }}">
-        {{ 'ACTIVE' if pir_active else 'IDLE' }}
-      </span>
-    </div>
-
-    <div class="motion-row">
-      {# VU meter #}
-      <div class="vu-wrap">
-        <div class="vu-meter">
-          <div class="vu-bar {{ 'vu-bar--active' if pir_active else '' }}"
-               style="height: {{ motion_pct }}%"></div>
-          {% if threshold_pct > 0 %}
-          <div class="vu-threshold" style="bottom: {{ threshold_pct }}%"></div>
-          {% endif %}
-        </div>
-        <div class="vu-pct">{{ motion_pct }}%</div>
-      </div>
-
-      {# Sparkline #}
-      <div class="sparkline-wrap">
-        <div class="sparkline-label-top">raw frame delta ({{ history_len }} samples)</div>
-        <svg viewBox="0 0 200 48" preserveAspectRatio="none" class="sparkline-svg">
-          <line x1="0" y1="16" x2="200" y2="16" stroke="#2a2a2a" stroke-width="0.5"/>
-          <line x1="0" y1="32" x2="200" y2="32" stroke="#2a2a2a" stroke-width="0.5"/>
-          {% if sparkline %}
-          <polygon points="{{ sparkline }} 200,48 0,48"
-                   fill="var(--accent)" opacity="0.08"/>
-          <polyline points="{{ sparkline }}"
-                    fill="none" stroke="var(--accent)"
-                    stroke-width="1.5" stroke-linejoin="round" stroke-linecap="round"/>
-          {% if threshold_pct > 0 %}
-          <line x1="0" y1="{{ 48 - threshold_pct * 0.48 }}"
-                x2="200" y2="{{ 48 - threshold_pct * 0.48 }}"
-                stroke="#cf6679" stroke-width="1" stroke-dasharray="4,3" opacity="0.8"/>
-          {% endif %}
-          {% else %}
-          <text x="100" y="28" text-anchor="middle" font-size="8" fill="#666">no data yet</text>
-          {% endif %}
-        </svg>
-        <div class="sparkline-legend">
-          <span class="legend-dot" style="background:var(--accent)"></span><span style="color:#ccc"> motion</span>
-          &nbsp;
-          <span class="legend-dot" style="background:#cf6679"></span><span style="color:#ccc"> threshold</span>
-        </div>
+      <div style="font-size:0.7rem;color:#888;display:flex;gap:0.6rem;align-items:center;flex-wrap:wrap;">
+        <span>State: <strong style="color:{{ '#e07070' if display_pipeline == 'DETECTED' else 'var(--text)' }}">{{ display_pipeline }}</strong></span>
+        {% if last_confidence %}<span>Conf: <strong>{{ '%.0f%%'|format(last_confidence * 100) }}</strong></span>{% endif %}
+        <span class="pdesc
+          {%- if display_pipeline == 'MOTION' %} pdesc--motion
+          {%- elif display_pipeline == 'DETECTING' %} pdesc--detecting
+          {%- elif display_pipeline == 'DETECTED' %} pdesc--detected
+          {%- endif %}" style="font-size:0.68rem;">
+          {%- if display_pipeline == 'IDLE' %}Waiting for motion.
+          {%- elif display_pipeline == 'MOTION' %}Building streak…
+          {%- elif display_pipeline == 'DETECTING' %}Confirming over 30 frames…
+          {%- elif display_pipeline == 'DETECTED' %}Deer confirmed · Deterrent firing.
+          {%- endif %}
+        </span>
       </div>
     </div>
 
-    <dl class="hw-stats hw-stats--compact">
-      <dt>Raw level</dt><dd>{{ '%.4f'|format(pir_level) }}</dd>
-      <dt>Triggers</dt><dd>{{ pir_triggers }}</dd>
-      <dt>Last trigger</dt><dd>{{ pir_last_triggered }}</dd>
-    </dl>
-  </section>
-
-  {# ── Detection Pipeline ────────────────────────────────────────────────── #}
-  <section class="hw-card">
-    <div class="hw-card-title">Detection Pipeline</div>
-
-    <div class="pipeline">
-      {% for step, label, icon in [
-          ('IDLE',      'Idle',      '○'),
-          ('MOTION',    'Motion',    '◉'),
-          ('DETECTING', 'Detecting', '⊙'),
-          ('DETECTED',  'Detected',  '●'),
-      ] %}
-      <div class="pipe-col">
-        <div class="pipe-step {{ 'pipe-step--active' if pipeline == step else '' }}
-                               {{ 'pipe-step--detected' if step == 'DETECTED' and pipeline == step else '' }}">
-          <span class="pipe-icon">{{ icon }}</span>
-          <span class="pipe-label">{{ label }}</span>
-        </div>
-        {% if not loop.last %}<div class="pipe-arrow-wrap"><div class="pipe-arrow">›</div></div>{% endif %}
+    {# Pinout chip — lower right #}
+    <div class="pinout-chip">
+      <div class="pinout-title">GPIO STATUS</div>
+      <div class="pinout-row">
+        <span class="pout-num">11</span>
+        <span class="pout-sig">GPIO 17</span>
+        <span class="pout-role">PIR signal</span>
+        <span class="pout-state {{ 'pout-hi' if pir_active else '' }}">{{ 'HIGH' if pir_active else 'LOW' }}</span>
       </div>
-      {% endfor %}
+      <div class="pinout-row">
+        <span class="pout-num">CSI</span>
+        <span class="pout-sig">Camera</span>
+        <span class="pout-role">Video in</span>
+        <span class="pout-state {{ 'pout-hi' if pi_on else '' }}">{{ 'ACTIVE' if pi_on else 'OFF' }}</span>
+      </div>
+      <div class="pinout-row">
+        <span class="pout-num">12/35</span>
+        <span class="pout-sig">I2S</span>
+        <span class="pout-role">Audio out</span>
+        <span class="pout-state {{ 'pout-hi' if audio_playing else '' }}">{{ 'PLAY' if audio_playing else 'IDLE' }}</span>
+      </div>
+      <div class="pinout-row">
+        <span class="pout-num">USB</span>
+        <span class="pout-sig">OTG</span>
+        <span class="pout-role">SSD</span>
+        <span class="pout-state {{ 'pout-blue' if ssd_active else '' }}">{{ 'WRITE' if ssd_active else 'IDLE' }}</span>
+      </div>
     </div>
 
-    <dl class="hw-stats">
-      <dt>State</dt>
-      <dd class="{{ 'stat-detected' if pipeline == 'DETECTED' else '' }}">{{ pipeline }}</dd>
-      <dt>Last confidence</dt>
-      <dd>{% if last_confidence %}{{ '%.0f%%'|format(last_confidence * 100) }}{% else %}—{% endif %}</dd>
-    </dl>
+  </div>
+</section>
 
-    <div class="pipeline-desc">
-      {% if pipeline == 'IDLE' %}
-        <span class="pdesc">Waiting for motion — PIR in standby (~50 µA).</span>
-      {% elif pipeline == 'MOTION' %}
-        <span class="pdesc pdesc--motion">PIR HIGH — frame delta above threshold. Preparing burst capture.</span>
-      {% elif pipeline == 'DETECTING' %}
-        <span class="pdesc pdesc--detecting">Running YOLOWorld inference on captured frames…</span>
-      {% elif pipeline == 'DETECTED' %}
-        <span class="pdesc pdesc--detected">Deer confirmed — {{ '%.0f%%'|format(last_confidence * 100) if last_confidence else '?' }} confidence. Dispatching actions.</span>
-      {% endif %}
-    </div>
-  </section>
-
-</div>
+{# ── Camera panel state updater (runs on every 400 ms poll) ──────────────── #}
+<script>
+(function () {
+  var audio = {{ 'true' if audio_playing else 'false' }};
+  var pipe  = "{{ pipeline }}";
+  var overlay = document.getElementById('cam-detected-overlay');
+  var box     = document.getElementById('camera-feed-box');
+  if (overlay) overlay.style.display = audio ? 'flex' : 'none';
+  if (box) {
+    box.className = 'feed-video-box feed-video-box--camera' +
+      (audio ? ' feed-video-box--detected' : (pipe !== 'IDLE' ? ' feed-video-box--active' : ''));
+  }
+}());
+</script>

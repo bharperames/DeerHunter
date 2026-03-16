@@ -284,6 +284,14 @@ class VideoFeedCamera:
             yield frame
 
     @property
+    def frame_size(self) -> tuple[int, int]:
+        """Return (width, height) of video frames."""
+        import cv2 as _cv2
+        w = int(self._cap.get(_cv2.CAP_PROP_FRAME_WIDTH))
+        h = int(self._cap.get(_cv2.CAP_PROP_FRAME_HEIGHT))
+        return w, h
+
+    @property
     def fps(self) -> float:
         return self._native_fps
 

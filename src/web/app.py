@@ -33,7 +33,7 @@ from typing import Optional
 
 import numpy as np
 import yaml
-from fastapi import Depends, FastAPI, Form, HTTPException, Request, Response, status
+from fastapi import Depends, FastAPI, File, Form, HTTPException, Request, Response, UploadFile, status
 from fastapi.responses import HTMLResponse, JSONResponse, StreamingResponse
 from fastapi.security import HTTPBasic, HTTPBasicCredentials
 from fastapi.staticfiles import StaticFiles
@@ -101,17 +101,31 @@ _hw_state: dict = {
     "pir_last_triggered": "—",
     "pipeline": "IDLE",       # IDLE | MOTION | DETECTING | DETECTED
     "last_confidence": None,
+    "audio_playing": False,
+    "audio_started_at": 0.0,
 }
 _hw_lock = threading.Lock()
 _PIPELINE_DETECTED_HOLD_S: float = 1.5   # keep DETECTED visible for this long
+_AUDIO_PLAY_S: float = 5.0               # simulated audio burst duration
+_DETECTION_CONFIRM_FRAMES: int = 30      # same bbox must track for this many consecutive frames
+_IOU_MATCH_THRESHOLD: float = 0.25       # min IoU to link a detection to an existing track
 _pipeline_detected_at: float = 0.0
+_quiescent_until: float = 0.0            # system stays IDLE until this monotonic time
+
+# Per-object streak tracker — each entry: {bbox, streak, class_name, confidence}
+_tracked_objects: list = []
+_tracked_lock = threading.Lock()
 
 # ---------------------------------------------------------------------------
 # Shared frame cache — one processor thread runs inference; all MJPEG clients
 # read the cached JPEG so multiple open tabs don't each trigger detection.
 # ---------------------------------------------------------------------------
-_frame_cache: dict = {"jpeg": b"", "seq": 0}
+_frame_cache: dict = {"jpeg": b"", "jpeg_raw": b"", "seq": 0}
 _frame_cache_lock = threading.Lock()
+_detected_frame: bytes = b""          # frozen frame captured at moment of detection
+_detected_frame_lock = threading.Lock()
+_clip_writer = None                   # cv2.VideoWriter open during quiescent window
+_clip_writer_lock = threading.Lock()
 _processor_thread: Optional[threading.Thread] = None
 
 
@@ -174,39 +188,150 @@ def require_auth(credentials: HTTPBasicCredentials = Depends(security)):
 # MJPEG stream helpers
 # ---------------------------------------------------------------------------
 def _frame_to_jpeg(frame: np.ndarray,
-                   detections: Optional[list] = None,
+                   tracks: Optional[list] = None,
                    quality: int = 75) -> bytes:
-    """Encode RGB frame to JPEG, optionally drawing detection boxes."""
+    """Encode RGB frame to JPEG, optionally drawing tracked detection boxes.
+
+    tracks is a list of track dicts {bbox, streak, class_name, confidence}.
+    Boxes are yellow while streak < _DETECTION_CONFIRM_FRAMES (building toward
+    confirmation) and switch to red once the streak reaches the threshold.
+    """
     import cv2
     from PIL import Image
 
     out = frame.copy()
     h, w = out.shape[:2]
 
-    if detections:
-        for det in detections:
-            x1, y1, x2, y2 = det.bbox
-            pt1 = (int(x1 * w), int(y1 * h))
-            pt2 = (int(x2 * w), int(y2 * h))
-            cv2.rectangle(out, pt1, pt2, (220, 50, 50), 2, cv2.LINE_AA)
-            label = f"{det.class_name} {det.confidence:.0%}"
-            (lw, lh), _ = cv2.getTextSize(label, cv2.FONT_HERSHEY_SIMPLEX, 0.55, 1)
-            cv2.rectangle(out, (pt1[0], pt1[1] - lh - 8),
-                          (pt1[0] + lw + 4, pt1[1]), (220, 50, 50), -1)
-            cv2.putText(out, label, (pt1[0] + 2, pt1[1] - 4),
-                        cv2.FONT_HERSHEY_SIMPLEX, 0.55, (255, 255, 255), 1, cv2.LINE_AA)
+    for track in (tracks or []):
+        x1, y1, x2, y2 = track["bbox"]
+        pt1 = (int(x1 * w), int(y1 * h))
+        pt2 = (int(x2 * w), int(y2 * h))
+
+        confirmed = track["streak"] >= _DETECTION_CONFIRM_FRAMES
+        color = (220, 50, 50) if confirmed else (220, 195, 30)  # red : yellow
+
+        cv2.rectangle(out, pt1, pt2, color, 2, cv2.LINE_AA)
+        label = f"{track['class_name']} {track['confidence']:.0%}"
+        (lw, lh), _ = cv2.getTextSize(label, cv2.FONT_HERSHEY_SIMPLEX, 0.55, 1)
+        cv2.rectangle(out, (pt1[0], pt1[1] - lh - 8),
+                      (pt1[0] + lw + 4, pt1[1]), color, -1)
+        cv2.putText(out, label, (pt1[0] + 2, pt1[1] - 4),
+                    cv2.FONT_HERSHEY_SIMPLEX, 0.55, (255, 255, 255), 1, cv2.LINE_AA)
 
     buf = io.BytesIO()
     Image.fromarray(out).save(buf, format="JPEG", quality=quality)
     return buf.getvalue()
 
 
+def _write_clip_frame(frame: np.ndarray) -> None:
+    with _clip_writer_lock:
+        if _clip_writer is not None:
+            try:
+                import cv2
+                _clip_writer.write(cv2.cvtColor(frame, cv2.COLOR_RGB2BGR))
+            except Exception as e:
+                logger.warning("Clip write error: %s", e)
+
+
+def _close_clip_writer() -> None:
+    global _clip_writer
+    with _clip_writer_lock:
+        if _clip_writer is not None:
+            try:
+                _clip_writer.release()
+                logger.info("Clip saved")
+            except Exception:
+                pass
+            _clip_writer = None
+
+
+def _iou(a: tuple, b: tuple) -> float:
+    """Intersection-over-Union for two (x1,y1,x2,y2) normalised bboxes."""
+    ax1, ay1, ax2, ay2 = a
+    bx1, by1, bx2, by2 = b
+    ix1, iy1 = max(ax1, bx1), max(ay1, by1)
+    ix2, iy2 = min(ax2, bx2), min(ay2, by2)
+    iw, ih = max(0.0, ix2 - ix1), max(0.0, iy2 - iy1)
+    inter = iw * ih
+    if inter == 0.0:
+        return 0.0
+    union = (ax2 - ax1) * (ay2 - ay1) + (bx2 - bx1) * (by2 - by1) - inter
+    return inter / union if union > 0.0 else 0.0
+
+
+def _update_tracker(detections: list) -> tuple[int, float]:
+    """
+    Match current-frame detections to existing per-object tracks using IoU.
+
+    A track's streak only increments when the *same spatial region* is detected
+    again; tracks with no matching detection this frame are dropped immediately
+    so a sporadic subject (squirrel) never accumulates a long streak.
+
+    Returns (max_streak, best_confidence) across all live tracks.
+    """
+    global _tracked_objects
+    with _tracked_lock:
+        unmatched_track_indices = set(range(len(_tracked_objects)))
+        updated: list = []
+
+        for det in detections:
+            # Find the existing track with highest IoU for this detection
+            best_iou, best_idx = 0.0, -1
+            for i in unmatched_track_indices:
+                iou = _iou(det.bbox, _tracked_objects[i]["bbox"])
+                if iou > best_iou:
+                    best_iou, best_idx = iou, i
+
+            if best_iou >= _IOU_MATCH_THRESHOLD:
+                # Continue existing track
+                track = _tracked_objects[best_idx]
+                updated.append({
+                    "bbox": det.bbox,
+                    "streak": track["streak"] + 1,
+                    "class_name": det.class_name,
+                    "confidence": det.confidence,
+                })
+                unmatched_track_indices.discard(best_idx)
+            else:
+                # New detection — start a fresh track at streak = 1
+                updated.append({
+                    "bbox": det.bbox,
+                    "streak": 1,
+                    "class_name": det.class_name,
+                    "confidence": det.confidence,
+                })
+
+        # Tracks with no matching detection this frame are dropped (streak reset)
+        _tracked_objects = updated
+
+        if not updated:
+            return 0, 0.0, []
+        best = max(updated, key=lambda t: t["streak"])
+        return best["streak"], best["confidence"], updated
+
+
+def _reset_tracker() -> None:
+    global _tracked_objects
+    with _tracked_lock:
+        _tracked_objects = []
+
+
 def _processor_loop(confidence: float = 0.40) -> None:
     """
     Single background thread: read camera, run detection, encode JPEG, cache.
     All MJPEG clients share this one cached frame — no per-client inference.
+
+    Per-object IoU tracker: each detection is matched frame-to-frame by bounding
+    box overlap (IoU >= _IOU_MATCH_THRESHOLD).  Only when a single tracked region
+    accumulates _DETECTION_CONFIRM_FRAMES consecutive matches does the action
+    fire.  Unmatched tracks are dropped immediately, so a squirrel that flashes
+    for a few frames never builds a long streak even if a deer is also present.
+
+    After DETECTED fires the system enters a quiescent window (_AUDIO_PLAY_S).
+    During that window the pipeline shows IDLE (Pi appears off) and actions are
+    suppressed while the deterrent plays.
     """
-    global _pipeline_detected_at
+    global _pipeline_detected_at, _quiescent_until, _detected_frame, _clip_writer
     while True:
         if _camera is None:
             time.sleep(0.2)
@@ -219,53 +344,124 @@ def _processor_loop(confidence: float = 0.40) -> None:
             time.sleep(0.2)
             continue
 
-        # Update PIR / motion state
+        now = time.monotonic()
+        in_quiescent = now < _quiescent_until
+
+        # Update PIR / motion state (always, so sparkline stays live)
         pir_active = False
         if hasattr(_camera, "motion_level"):
             pir_active = _camera.motion_active
             with _hw_lock:
                 _hw_state["pir_level"] = _camera.motion_level
-                _hw_state["pir_active"] = pir_active
+                # Suppress PIR active indication while quiescent
+                _hw_state["pir_active"] = pir_active and not in_quiescent
 
+        # Always run inference so the MJPEG stream always shows detection boxes
         detections = []
         if _detector is not None:
-            with _hw_lock:
-                now = time.monotonic()
-                if (_hw_state["pipeline"] != "DETECTED" or
-                        (now - _pipeline_detected_at) >= _PIPELINE_DETECTED_HOLD_S):
-                    _hw_state["pipeline"] = "MOTION" if pir_active else "DETECTING"
             try:
                 detections = _detector.detect(frame, confidence_threshold=confidence)
                 _record_detection(detections)
             except Exception as e:
                 logger.warning("Processor: detection error: %s", e)
-            with _hw_lock:
-                now = time.monotonic()
-                if detections:
-                    _hw_state["pipeline"] = "DETECTED"
-                    _pipeline_detected_at = now
-                    _hw_state["last_confidence"] = round(
-                        max(d.confidence for d in detections), 2)
-                elif (_hw_state["pipeline"] == "DETECTED" and
-                        (now - _pipeline_detected_at) < _PIPELINE_DETECTED_HOLD_S):
-                    pass
-                elif pir_active:
-                    _hw_state["pipeline"] = "MOTION"
-                else:
-                    _hw_state["pipeline"] = "IDLE"
-        else:
-            with _hw_lock:
-                _hw_state["pipeline"] = "MOTION" if pir_active else "IDLE"
 
+        # Snapshot PREVIOUS frame's tracker state for coloring (one-frame lag is
+        # invisible; avoids a double-update on quiescent-exit frames).
+        with _tracked_lock:
+            draw_tracks = list(_tracked_objects)
+
+        # Encode raw (no boxes) for /stream/raw and processed (with boxes) for /stream
         try:
-            jpeg = _frame_to_jpeg(frame, detections)
+            jpeg_raw = _frame_to_jpeg(frame, [])
+            jpeg = _frame_to_jpeg(frame, draw_tracks)
         except Exception as e:
             logger.warning("Processor: encode error: %s", e)
             continue
 
         with _frame_cache_lock:
             _frame_cache["jpeg"] = jpeg
+            _frame_cache["jpeg_raw"] = jpeg_raw
             _frame_cache["seq"] += 1
+
+        # Write clip frames throughout the quiescent window
+        if in_quiescent:
+            _write_clip_frame(frame)
+            with _hw_lock:
+                _hw_state["pipeline"] = "IDLE"
+            continue
+
+        # Detect quiescent-exit: clip writer still open means we just left quiescent.
+        # Close the clip and reset the tracker so the deer must re-accumulate a full
+        # 30-frame streak before the deterrent fires again.
+        if _clip_writer is not None:
+            _close_clip_writer()
+            _reset_tracker()
+
+        # Update tracker with current detections (result used next frame for colors,
+        # and right now for hw_state / firing logic).
+        max_streak, best_conf = 0, 0.0
+        if _detector is not None:
+            max_streak, best_conf, _ = _update_tracker(detections)
+
+        confirmed = max_streak >= _DETECTION_CONFIRM_FRAMES
+
+        if _detector is not None:
+            with _hw_lock:
+                now = time.monotonic()
+                if max_streak > 0:
+                    _hw_state["last_confidence"] = round(best_conf, 2)
+
+                if confirmed and not _hw_state["audio_playing"]:
+                    # Same object tracked for ≥ 30 consecutive frames — fire
+                    _hw_state["pipeline"] = "DETECTED"
+                    _pipeline_detected_at = now
+                    _hw_state["audio_playing"] = True
+                    _hw_state["audio_started_at"] = now
+                    _detected_frame = jpeg
+                    try:
+                        SNAPSHOTS_DIR.mkdir(parents=True, exist_ok=True)
+                        snap_ts = time.strftime("%Y%m%d_%H%M%S")
+                        (SNAPSHOTS_DIR / f"snap_{snap_ts}.jpg").write_bytes(jpeg)
+                    except Exception as e:
+                        logger.warning("Snapshot save error: %s", e)
+                    try:
+                        import cv2
+                        CLIPS_DIR.mkdir(parents=True, exist_ok=True)
+                        fps = getattr(_camera, "fps", 25.0)
+                        h, w = frame.shape[:2]
+                        clip_path = str(
+                            CLIPS_DIR / f"clip_{time.strftime('%Y%m%d_%H%M%S')}.mp4"
+                        )
+                        fourcc = cv2.VideoWriter_fourcc(*"mp4v")
+                        with _clip_writer_lock:
+                            _clip_writer = cv2.VideoWriter(
+                                clip_path, fourcc, fps, (w, h)
+                            )
+                        logger.info("Recording clip: %s", clip_path)
+                    except Exception as e:
+                        logger.warning("Failed to open clip writer: %s", e)
+                    _quiescent_until = now + _AUDIO_PLAY_S
+                    logger.info(
+                        "Object confirmed at %d consecutive frames — firing deterrent",
+                        max_streak,
+                    )
+                elif confirmed:
+                    pass  # audio already playing — keep current state
+                elif max_streak > 0:
+                    # Building toward confirmation — show progress in pipeline
+                    _hw_state["pipeline"] = "DETECTING"
+                else:
+                    # No detections this frame — tracker already cleared streaks
+                    if (_hw_state["pipeline"] == "DETECTED" and
+                            (now - _pipeline_detected_at) < _PIPELINE_DETECTED_HOLD_S):
+                        pass  # hold DETECTED display briefly
+                    elif pir_active:
+                        _hw_state["pipeline"] = "MOTION"
+                    else:
+                        _hw_state["pipeline"] = "IDLE"
+        else:
+            with _hw_lock:
+                _hw_state["pipeline"] = "MOTION" if pir_active else "IDLE"
 
 
 def _start_processor(confidence: float = 0.40) -> None:
@@ -346,7 +542,7 @@ async def live_page(request: Request, auth=Depends(require_auth)):
 
 @app.post("/live/restart")
 async def live_restart(auth=Depends(require_auth)):
-    """Rewind the video source to the beginning."""
+    """Rewind the video source and reset all system state to IDLE (Pi off)."""
     if _camera is not None and hasattr(_camera, "seek_to_start"):
         _camera.seek_to_start()
     with _detection_lock:
@@ -355,12 +551,22 @@ async def live_restart(auth=Depends(require_auth)):
         _last_detection_time = 0.0
         _last_detection_count = 0
     with _hw_lock:
-        global _pipeline_detected_at
+        global _pipeline_detected_at, _quiescent_until
+        _hw_state["pir_active"] = False
+        _hw_state["pir_level"] = 0.0
         _hw_state["pir_triggers"] = 0
         _hw_state["pir_last_triggered"] = "—"
         _hw_state["pipeline"] = "IDLE"
         _hw_state["last_confidence"] = None
+        _hw_state["audio_playing"] = False
+        _hw_state["audio_started_at"] = 0.0
         _pipeline_detected_at = 0.0
+        _quiescent_until = 0.0
+    _reset_tracker()
+    with _detected_frame_lock:
+        global _detected_frame
+        _detected_frame = b""
+    _close_clip_writer()
     return Response(status_code=204)
 
 
@@ -383,6 +589,33 @@ async def mjpeg_stream(
     """MJPEG stream with detection overlay. Open in <img src="/stream">."""
     return StreamingResponse(
         _mjpeg_generator(confidence=confidence),
+        media_type="multipart/x-mixed-replace; boundary=deerhunter_frame",
+    )
+
+
+@app.get("/stream/raw")
+async def mjpeg_stream_raw(auth=Depends(require_auth)):
+    """MJPEG stream with no detection overlay — raw camera input."""
+    def _gen():
+        boundary = b"--deerhunter_frame\r\n"
+        last_seq = -1
+        while True:
+            with _frame_cache_lock:
+                seq = _frame_cache["seq"]
+                jpeg = _frame_cache.get("jpeg_raw", b"")
+            if jpeg and seq != last_seq:
+                last_seq = seq
+                yield (
+                    boundary
+                    + b"Content-Type: image/jpeg\r\n"
+                    + f"Content-Length: {len(jpeg)}\r\n\r\n".encode()
+                    + jpeg
+                    + b"\r\n"
+                )
+            else:
+                time.sleep(0.01)
+    return StreamingResponse(
+        _gen(),
         media_type="multipart/x-mixed-replace; boundary=deerhunter_frame",
     )
 
@@ -415,6 +648,19 @@ async def snapshot_current(auth=Depends(require_auth)):
         jpeg = _frame_cache.get("jpeg")
     if not jpeg:
         raise HTTPException(503, "No frame available yet")
+    return Response(content=jpeg, media_type="image/jpeg")
+
+
+@app.get("/snapshot/detected")
+async def snapshot_detected(auth=Depends(require_auth)):
+    """Return the frozen JPEG captured at the moment of the last detection.
+    Falls back to the current live frame so the image tag never breaks."""
+    jpeg = _detected_frame
+    if not jpeg:
+        with _frame_cache_lock:
+            jpeg = _frame_cache.get("jpeg", b"")
+    if not jpeg:
+        raise HTTPException(503, "No frame available")
     return Response(content=jpeg, media_type="image/jpeg")
 
 
@@ -490,7 +736,85 @@ async def system_status(auth=Depends(require_auth)):
 # ---------------------------------------------------------------------------
 @app.get("/hardware", response_class=HTMLResponse)
 async def hardware_page(request: Request, auth=Depends(require_auth)):
-    return templates.TemplateResponse("hardware.html", {"request": request})
+    current_video = os.environ.get("DH_VIDEO", "")
+    current_threshold = os.environ.get("DH_MOTION_THRESHOLD", "0.012")
+    return templates.TemplateResponse("hardware.html", {
+        "request": request,
+        "current_video": current_video,
+        "current_video_name": Path(current_video).name if current_video else "",
+        "current_threshold": current_threshold,
+    })
+
+
+@app.post("/api/load-video")
+async def load_video(
+    video_file: UploadFile = File(...),
+    motion_threshold: Optional[float] = Form(None),
+    auth=Depends(require_auth),
+):
+    """Swap the video source — accepts a file upload from the browser file picker."""
+    global _camera
+
+    uploads_dir = BASE_DIR / "storage" / "uploads"
+    uploads_dir.mkdir(parents=True, exist_ok=True)
+    path = uploads_dir / video_file.filename
+    try:
+        contents = await video_file.read()
+        path.write_bytes(contents)
+    except Exception as e:
+        return HTMLResponse(
+            f'<div class="alert alert-error">Upload failed: {e}</div>',
+            status_code=500,
+        )
+
+    # Close old camera cleanly
+    old_cam = _camera
+    if old_cam is not None and hasattr(old_cam, "close"):
+        old_cam.close()
+
+    from src.sensors.video_feed import VideoFeedCamera
+
+    threshold = motion_threshold if motion_threshold is not None else float(
+        os.environ.get("DH_MOTION_THRESHOLD", "0.012")
+    )
+    cam = VideoFeedCamera(source=str(path), loop=True, realtime=True,
+                          motion_threshold=threshold)
+
+    def _motion_cb():
+        with _hw_lock:
+            _hw_state["pir_triggers"] += 1
+            _hw_state["pir_last_triggered"] = time.strftime("%H:%M:%S")
+
+    cam.register_motion_callback(_motion_cb)
+    set_camera(cam)
+
+    # Update env so a server reload picks up the new source
+    os.environ["DH_VIDEO"] = str(path)
+    if motion_threshold is not None:
+        os.environ["DH_MOTION_THRESHOLD"] = str(motion_threshold)
+
+    # Reset detection / pipeline state
+    with _detection_lock:
+        _detection_events.clear()
+        global _last_detection_time, _last_detection_count
+        _last_detection_time = 0.0
+        _last_detection_count = 0
+    with _hw_lock:
+        global _pipeline_detected_at
+        _hw_state["pir_triggers"] = 0
+        _hw_state["pir_last_triggered"] = "—"
+        _hw_state["pipeline"] = "IDLE"
+        _hw_state["last_confidence"] = None
+        _hw_state["audio_playing"] = False
+        _hw_state["audio_started_at"] = 0.0
+        _pipeline_detected_at = 0.0
+    _reset_tracker()
+
+    resp = HTMLResponse(
+        f'<div class="alert alert-success">Loaded: {path.name} ({len(contents) // 1024} KB)</div>'
+    )
+    resp.headers["HX-Trigger"] = "videoLoaded"
+    return resp
 
 
 @app.get("/api/hw", response_class=HTMLResponse)
@@ -498,6 +822,12 @@ async def hw_state_partial(request: Request, auth=Depends(require_auth)):
     """HTMX partial — live hardware state panel, polled every 400 ms."""
     with _hw_lock:
         state = dict(_hw_state)
+        # Auto-expire audio_playing after configured burst duration
+        if state["audio_playing"]:
+            elapsed = time.monotonic() - state["audio_started_at"]
+            if elapsed >= _AUDIO_PLAY_S:
+                _hw_state["audio_playing"] = False
+                state["audio_playing"] = False
 
     # Build sparkline SVG points from camera motion history
     sparkline = ""
@@ -530,6 +860,14 @@ async def hw_state_partial(request: Request, auth=Depends(require_auth)):
         scale = max(peak * 1.2, threshold * 4.0, 0.02)
         motion_pct = min(100, int(state["pir_level"] / scale * 100))
 
+    cam_aspect = 16 / 9  # default — landscape
+    if _camera is not None and hasattr(_camera, "frame_size"):
+        w, h = _camera.frame_size
+        if h > 0:
+            cam_aspect = w / h
+
+    recording = time.monotonic() < _quiescent_until
+
     return templates.TemplateResponse("partials/hw_state.html", {
         "request": request,
         **state,
@@ -538,6 +876,8 @@ async def hw_state_partial(request: Request, auth=Depends(require_auth)):
         "threshold_pct": threshold_pct,
         "motion_pct": motion_pct,
         "ts": int(time.time()),
+        "cam_aspect": cam_aspect,
+        "recording": recording,
     })
 
 
