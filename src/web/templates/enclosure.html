@@ -1,0 +1,689 @@
+{% extends "base.html" %}
+{% block title %}Enclosure Generator — DeerHunter{% endblock %}
+
+{% block content %}
+{# ── Override main padding for full-bleed layout ── #}
+<style>
+  main { padding: 0 !important; max-width: 100% !important; overflow: hidden; }
+
+  #enc-shell {
+    display: flex;
+    height: calc(100vh - 42px - 36px);
+    overflow: hidden;
+  }
+
+  #enc-canvas-wrap {
+    flex: 1;
+    min-width: 0;
+    position: relative;
+    background: #111111;
+    overflow: hidden;
+  }
+  #enc-canvas { display: block; width: 100%; height: 100%; }
+  #enc-overlay {
+    position: absolute;
+    top: 10px; left: 12px;
+    font-family: monospace;
+    font-size: 0.65rem;
+    color: #444;
+    pointer-events: none;
+    line-height: 1.55;
+  }
+
+  #enc-panel {
+    width: 280px;
+    min-width: 280px;
+    background: #0e0e0e;
+    border-left: 1px solid #222;
+    overflow-y: auto;
+    display: flex;
+    flex-direction: column;
+    gap: 0;
+  }
+
+  .ep-section { border-bottom: 1px solid #1e1e1e; padding: 0.7rem 0.85rem 0.75rem; }
+  .ep-section-title {
+    font-size: 0.6rem; font-weight: 700; text-transform: uppercase;
+    letter-spacing: 0.1em; color: #555; margin-bottom: 0.6rem;
+  }
+
+  .ep-row { display: flex; flex-direction: column; gap: 0.18rem; margin-bottom: 0.55rem; }
+  .ep-row:last-child { margin-bottom: 0; }
+  .ep-label-row { display: flex; justify-content: space-between; align-items: baseline; }
+  .ep-label { font-size: 0.7rem; color: #aaa; font-family: monospace; }
+  .ep-val { font-size: 0.68rem; font-family: monospace; color: #6abf69; min-width: 38px; text-align: right; }
+
+  input[type="range"] {
+    -webkit-appearance: none; appearance: none;
+    width: 100%; height: 3px; background: #333;
+    border-radius: 2px; outline: none; cursor: pointer;
+    margin: 0; padding: 0; border: none;
+  }
+  input[type="range"]::-webkit-slider-thumb {
+    -webkit-appearance: none; appearance: none;
+    width: 12px; height: 12px; border-radius: 50%;
+    background: #6abf69; cursor: pointer;
+    box-shadow: 0 0 4px rgba(106,191,105,0.5);
+  }
+  input[type="range"]::-moz-range-thumb {
+    width: 12px; height: 12px; border-radius: 50%;
+    background: #6abf69; cursor: pointer; border: none;
+  }
+
+  .ep-check-row {
+    display: flex; align-items: center; gap: 0.5rem;
+    margin-bottom: 0.4rem; cursor: pointer;
+  }
+  .ep-check-row:last-child { margin-bottom: 0; }
+  .ep-check-row input[type="checkbox"] {
+    width: 13px; height: 13px; accent-color: #6abf69;
+    cursor: pointer; flex-shrink: 0; margin: 0; padding: 0;
+    border: none; background: none;
+  }
+  .ep-check-label { font-size: 0.72rem; color: #aaa; font-family: monospace; user-select: none; }
+
+  .ep-info-grid {
+    display: grid; grid-template-columns: auto 1fr;
+    gap: 0.22rem 0.65rem; font-size: 0.7rem; font-family: monospace;
+  }
+  .ep-info-dt { color: #555; }
+  .ep-info-dd { color: #aaa; }
+  .ep-info-dd--accent { color: #6abf69; }
+
+  .ep-legend { display: flex; flex-direction: column; gap: 0.28rem; }
+  .ep-legend-row {
+    display: flex; align-items: center; gap: 0.5rem;
+    font-size: 0.65rem; font-family: monospace; color: #777;
+  }
+  .ep-legend-swatch { width: 10px; height: 10px; border-radius: 2px; flex-shrink: 0; }
+</style>
+
+<div id="enc-shell">
+
+  <div id="enc-canvas-wrap">
+    <canvas id="enc-canvas"></canvas>
+    <div id="enc-overlay">
+      DeerHunter Enclosure Generator<br>
+      Drag to orbit · Scroll to zoom · Right-drag to pan
+    </div>
+  </div>
+
+  <div id="enc-panel">
+
+    <div class="ep-section">
+      <div class="ep-section-title">Dimensions</div>
+
+      <div class="ep-row">
+        <div class="ep-label-row">
+          <label class="ep-label" for="ctrl-width">Width</label>
+          <span class="ep-val" id="val-width">140 mm</span>
+        </div>
+        <input type="range" id="ctrl-width" min="120" max="200" step="5" value="140">
+      </div>
+
+      <div class="ep-row">
+        <div class="ep-label-row">
+          <label class="ep-label" for="ctrl-height">Height</label>
+          <span class="ep-val" id="val-height">90 mm</span>
+        </div>
+        <input type="range" id="ctrl-height" min="70" max="130" step="5" value="90">
+      </div>
+
+      <div class="ep-row">
+        <div class="ep-label-row">
+          <label class="ep-label" for="ctrl-depth">Depth</label>
+          <span class="ep-val" id="val-depth">70 mm</span>
+        </div>
+        <input type="range" id="ctrl-depth" min="50" max="120" step="5" value="70">
+      </div>
+
+      <div class="ep-row">
+        <div class="ep-label-row">
+          <label class="ep-label" for="ctrl-wall">Wall thickness</label>
+          <span class="ep-val" id="val-wall">3 mm</span>
+        </div>
+        <input type="range" id="ctrl-wall" min="2" max="6" step="0.5" value="3">
+      </div>
+    </div>
+
+    <div class="ep-section">
+      <div class="ep-section-title">View</div>
+
+      <div class="ep-row">
+        <div class="ep-label-row">
+          <label class="ep-label" for="ctrl-lid">Lid offset</label>
+          <span class="ep-val" id="val-lid">20 mm</span>
+        </div>
+        <input type="range" id="ctrl-lid" min="0" max="60" step="1" value="20">
+      </div>
+
+      <label class="ep-check-row">
+        <input type="checkbox" id="ctrl-components" checked>
+        <span class="ep-check-label">Show components</span>
+      </label>
+
+      <label class="ep-check-row">
+        <input type="checkbox" id="ctrl-mounts" checked>
+        <span class="ep-check-label">Show mounting posts</span>
+      </label>
+
+      <label class="ep-check-row">
+        <input type="checkbox" id="ctrl-cutouts" checked>
+        <span class="ep-check-label">Show cutout indicators</span>
+      </label>
+    </div>
+
+    <div class="ep-section">
+      <div class="ep-section-title">Computed Info</div>
+      <dl class="ep-info-grid" id="enc-info">
+        <dt class="ep-info-dt">Interior W</dt>
+        <dd class="ep-info-dd ep-info-dd--accent" id="info-iw">—</dd>
+        <dt class="ep-info-dt">Interior H</dt>
+        <dd class="ep-info-dd ep-info-dd--accent" id="info-ih">—</dd>
+        <dt class="ep-info-dt">Interior D</dt>
+        <dd class="ep-info-dd ep-info-dd--accent" id="info-id">—</dd>
+        <dt class="ep-info-dt">Volume</dt>
+        <dd class="ep-info-dd" id="info-vol">—</dd>
+        <dt class="ep-info-dt">Shell vol</dt>
+        <dd class="ep-info-dd" id="info-shell">—</dd>
+        <dt class="ep-info-dt">Est. mass</dt>
+        <dd class="ep-info-dd" id="info-mass">—</dd>
+        <dt class="ep-info-dt">Print time</dt>
+        <dd class="ep-info-dd" id="info-time">~TBD</dd>
+        <dt class="ep-info-dt">Material</dt>
+        <dd class="ep-info-dd">PETG</dd>
+      </dl>
+    </div>
+
+    <div class="ep-section">
+      <div class="ep-section-title">Component Legend</div>
+      <div class="ep-legend">
+        <div class="ep-legend-row"><div class="ep-legend-swatch" style="background:#1a3a1a;"></div>Pi Zero 2W (65×30mm)</div>
+        <div class="ep-legend-row"><div class="ep-legend-swatch" style="background:#1a2a3a;"></div>Camera Module v3 (25×24mm)</div>
+        <div class="ep-legend-row"><div class="ep-legend-swatch" style="background:#3a2a1a;"></div>HC-SR501 PIR (32×24mm)</div>
+        <div class="ep-legend-row"><div class="ep-legend-swatch" style="background:#3a1a1a;"></div>18650 Battery (70×35×18mm)</div>
+        <div class="ep-legend-row"><div class="ep-legend-swatch" style="background:#2a1a3a;"></div>MAX98357A (19.4×17.8mm)</div>
+        <div class="ep-legend-row"><div class="ep-legend-swatch" style="background:#1a2a2a;"></div>TP4056 Charger (28×17mm)</div>
+        <div class="ep-legend-row"><div class="ep-legend-swatch" style="background:#222244;border-radius:50%;"></div>40mm Speaker</div>
+        <div class="ep-legend-row"><div class="ep-legend-swatch" style="background:#3a3a1a;border:1px solid #888;"></div>M2/M2.5/M3 Mounting Posts</div>
+        <div class="ep-legend-row"><div class="ep-legend-swatch" style="background:#0055ff;border-radius:50%;"></div>Camera lens cutout (12mm)</div>
+        <div class="ep-legend-row"><div class="ep-legend-swatch" style="background:#ff8800;border-radius:50%;"></div>PIR dome cutout (26mm)</div>
+        <div class="ep-legend-row"><div class="ep-legend-swatch" style="background:#aa00ff;border-radius:50%;"></div>Speaker grille (40mm)</div>
+        <div class="ep-legend-row"><div class="ep-legend-swatch" style="background:#00cc88;border-radius:2px;"></div>USB-C port slot</div>
+      </div>
+    </div>
+
+  </div>
+</div>
+
+<script type="importmap">
+{
+  "imports": {
+    "three":          "https://unpkg.com/three@0.160.0/build/three.module.js",
+    "three/addons/":  "https://unpkg.com/three@0.160.0/examples/jsm/"
+  }
+}
+</script>
+
+<script type="module">
+import * as THREE from 'three';
+import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+
+/* ── Scene / Renderer / Camera ── */
+const canvas  = document.getElementById('enc-canvas');
+const wrap    = document.getElementById('enc-canvas-wrap');
+
+const renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
+renderer.setPixelRatio(window.devicePixelRatio);
+renderer.outputColorSpace = THREE.SRGBColorSpace;
+renderer.shadowMap.enabled = true;
+renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+renderer.setClearColor(0x111111);
+
+const scene = new THREE.Scene();
+
+const camera = new THREE.PerspectiveCamera(45, 1, 0.1, 5000);
+camera.position.set(200, 180, 200);
+camera.lookAt(0, 40, 0);
+
+/* ── Orbit controls ── */
+const controls = new OrbitControls(camera, renderer.domElement);
+controls.enableDamping  = true;
+controls.dampingFactor  = 0.07;
+controls.minDistance    = 50;
+controls.maxDistance    = 900;
+controls.target.set(0, 40, 0);
+controls.update();
+
+/* ── Lighting ── */
+scene.add(new THREE.AmbientLight(0xffffff, 1.2));
+
+const key = new THREE.DirectionalLight(0xffffff, 2.2);
+key.position.set(120, 220, 120);
+key.castShadow = true;
+key.shadow.mapSize.set(2048, 2048);
+key.shadow.camera.near   =   1;
+key.shadow.camera.far    = 900;
+key.shadow.camera.left   = -200;
+key.shadow.camera.right  =  200;
+key.shadow.camera.top    =  200;
+key.shadow.camera.bottom = -200;
+scene.add(key);
+
+const fill = new THREE.DirectionalLight(0x88aaff, 0.9);
+fill.position.set(-100, 60, -80);
+scene.add(fill);
+
+const back = new THREE.DirectionalLight(0xffffff, 1.1);
+back.position.set(-100, 160, -120);
+scene.add(back);
+
+const bottom = new THREE.DirectionalLight(0xffffee, 0.6);
+bottom.position.set(0, -100, 0);
+scene.add(bottom);
+
+/* ── Procedural grid floor ── */
+(function buildGrid() {
+  const SIZE = 300, HALF = SIZE / 2;
+  const c = document.createElement('canvas');
+  c.width = c.height = 1024;
+  const ctx = c.getContext('2d');
+  ctx.fillStyle = '#0f0f0f';
+  ctx.fillRect(0, 0, 1024, 1024);
+  const ppm = 1024 / SIZE;
+  function grid(step, color, lw) {
+    ctx.strokeStyle = color; ctx.lineWidth = lw; ctx.beginPath();
+    for (let x = 0; x <= SIZE; x += step) { ctx.moveTo(x*ppm,0); ctx.lineTo(x*ppm,1024); }
+    for (let y = 0; y <= SIZE; y += step) { ctx.moveTo(0,y*ppm); ctx.lineTo(1024,y*ppm); }
+    ctx.stroke();
+  }
+  grid(1,  '#1a1a1a', 0.5);
+  grid(5,  '#252525', 1.0);
+  grid(10, '#2d2d2d', 1.8);
+  const tex  = new THREE.CanvasTexture(c);
+  const mesh = new THREE.Mesh(
+    new THREE.PlaneGeometry(SIZE, SIZE),
+    new THREE.MeshStandardMaterial({ map: tex, roughness: 1, metalness: 0 })
+  );
+  mesh.rotation.x = -Math.PI / 2;
+  mesh.receiveShadow = true;
+  scene.add(mesh);
+})();
+
+/* ── Group management ── */
+let encGroup = null, compGroup = null, mountGroup = null, cutoutGroup = null;
+
+function disposeGroup(g) {
+  if (!g) return;
+  g.traverse(o => {
+    if (o.geometry) o.geometry.dispose();
+    if (o.material) {
+      const mats = Array.isArray(o.material) ? o.material : [o.material];
+      mats.forEach(m => { if (m.map) m.map.dispose(); m.dispose(); });
+    }
+  });
+  scene.remove(g);
+}
+
+/* ── Geometry helpers ── */
+function makeBox(parent, w, h, d, x, y, z, mat) {
+  const m = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), mat);
+  m.position.set(x, y, z);
+  m.castShadow = m.receiveShadow = true;
+  parent.add(m);
+  return m;
+}
+
+function makeCyl(parent, rTop, rBot, h, x, y, z, mat, segs=16) {
+  const m = new THREE.Mesh(new THREE.CylinderGeometry(rTop, rBot, h, segs), mat);
+  m.position.set(x, y, z);
+  m.castShadow = m.receiveShadow = true;
+  parent.add(m);
+  return m;
+}
+
+/* Standoff: brass-coloured post for PCB mounting */
+const BRASS_MAT = () => new THREE.MeshStandardMaterial({ color: 0xb8922a, roughness: 0.4, metalness: 0.8 });
+
+function addStandoffs(parent, holes, baseY, height, postR) {
+  holes.forEach(([dx, dz]) => {
+    makeCyl(parent, postR, postR, height, dx, baseY + height/2, dz, BRASS_MAT());
+    // Screw head on top
+    makeCyl(parent, postR*1.8, postR*1.8, 0.8, dx, baseY + height + 0.4, dz, BRASS_MAT(), 12);
+  });
+}
+
+/* Image plane on top of a component box */
+function addImagePlane(parent, url, planeW, planeD, x, yTop, z) {
+  const loader = new THREE.TextureLoader();
+  loader.crossOrigin = 'anonymous';
+  loader.load(url, tex => {
+    tex.colorSpace = THREE.SRGBColorSpace;
+    const mat  = new THREE.MeshBasicMaterial({ map: tex, side: THREE.FrontSide });
+    const mesh = new THREE.Mesh(new THREE.PlaneGeometry(planeW * 0.9, planeD * 0.9), mat);
+    mesh.rotation.x = -Math.PI / 2;
+    mesh.position.set(x, yTop + 0.2, z);
+    parent.add(mesh);
+  }, undefined, () => {});
+}
+
+/* Cutout ring indicator on a wall face */
+function makeCutoutRing(parent, outerR, color, x, y, z, rotX, rotY) {
+  const mat = new THREE.MeshBasicMaterial({ color, side: THREE.DoubleSide });
+  const ring = new THREE.Mesh(new THREE.RingGeometry(outerR * 0.6, outerR, 48), mat);
+  ring.position.set(x, y, z);
+  if (rotX !== undefined) ring.rotation.x = rotX;
+  if (rotY !== undefined) ring.rotation.y = rotY;
+  parent.add(ring);
+
+  const discMat = new THREE.MeshBasicMaterial({ color, transparent: true, opacity: 0.12, side: THREE.DoubleSide });
+  const disc = new THREE.Mesh(new THREE.CircleGeometry(outerR, 48), discMat);
+  disc.position.set(x, y, z);
+  if (rotX !== undefined) disc.rotation.x = rotX;
+  if (rotY !== undefined) disc.rotation.y = rotY;
+  parent.add(disc);
+}
+
+/* USB-C slot rectangle indicator */
+function makeMicroPort(parent, slotW, slotH, x, y, z, rotY) {
+  const mat = new THREE.MeshBasicMaterial({ color: 0x00cc88, side: THREE.DoubleSide });
+  const mesh = new THREE.Mesh(new THREE.PlaneGeometry(slotW, slotH), mat);
+  mesh.position.set(x, y, z);
+  if (rotY !== undefined) mesh.rotation.y = rotY;
+  parent.add(mesh);
+}
+
+/* ── Read controls ── */
+function getParams() {
+  return {
+    encW:           parseFloat(document.getElementById('ctrl-width').value),
+    encH:           parseFloat(document.getElementById('ctrl-height').value),
+    encD:           parseFloat(document.getElementById('ctrl-depth').value),
+    wallT:          parseFloat(document.getElementById('ctrl-wall').value),
+    lidGap:         parseFloat(document.getElementById('ctrl-lid').value),
+    showComponents: document.getElementById('ctrl-components').checked,
+    showMounts:     document.getElementById('ctrl-mounts').checked,
+    showCutouts:    document.getElementById('ctrl-cutouts').checked,
+  };
+}
+
+/* ── Info panel ── */
+function updateInfo(p) {
+  const iW = p.encW - 2*p.wallT, iH = p.encH - 2*p.wallT, iD = p.encD - 2*p.wallT;
+  document.getElementById('info-iw').textContent = iW.toFixed(1) + ' mm';
+  document.getElementById('info-ih').textContent = iH.toFixed(1) + ' mm';
+  document.getElementById('info-id').textContent = iD.toFixed(1) + ' mm';
+  const vol = (iW*iH*iD)/1000, outer = (p.encW*p.encH*p.encD)/1000, shell = outer-vol;
+  const mass = shell * 1.27;
+  document.getElementById('info-vol').textContent   = vol.toFixed(0) + ' cm³';
+  document.getElementById('info-shell').textContent = shell.toFixed(1) + ' cm³';
+  document.getElementById('info-mass').textContent  = mass.toFixed(0) + ' g';
+  const hrs = shell/5, hh = Math.floor(hrs), mm = Math.round((hrs-hh)*60);
+  document.getElementById('info-time').textContent  = '~'+hh+'h '+mm+'m';
+}
+
+/* ══════════════════════════════════════════════════════════════
+   Main rebuild
+   ══════════════════════════════════════════════════════════════ */
+function updateEnclosure() {
+  const p = getParams();
+  disposeGroup(encGroup);
+  disposeGroup(compGroup);
+  disposeGroup(mountGroup);
+  disposeGroup(cutoutGroup);
+
+  const t = p.wallT, W = p.encW, H = p.encH, D = p.encD;
+  const hW = W/2, hH = H/2, hD = D/2;
+
+  /* Interior extents (coordinate origin = center of floor level) */
+  const iW = W - 2*t, iH = H - 2*t, iD = D - 2*t;
+
+  /* ── Enclosure shell material ── */
+  const shellMat = () => new THREE.MeshStandardMaterial({
+    color: 0x2a3a2a, roughness: 0.75, metalness: 0.08,
+    transparent: true, opacity: 0.70, side: THREE.DoubleSide,
+  });
+
+  encGroup = new THREE.Group();
+  scene.add(encGroup);
+
+  // Floor: y centre = t/2
+  makeBox(encGroup, W, t, D, 0, t/2, 0, shellMat());
+  // Front wall (faces -Z, camera/PIR face)
+  makeBox(encGroup, W, H, t, 0, hH, -hD + t/2, shellMat());
+  // Back wall
+  makeBox(encGroup, W, H, t, 0, hH,  hD - t/2, shellMat());
+  // Left wall
+  makeBox(encGroup, t, H, D, -hW + t/2, hH, 0, shellMat());
+  // Right wall (speaker side)
+  makeBox(encGroup, t, H, D,  hW - t/2, hH, 0, shellMat());
+  // Lid — raised above box by lidGap
+  makeBox(encGroup, W, t, D, 0, H + p.lidGap + t/2, 0, shellMat());
+
+  /* Lid M3 corner screw bosses (4× corners) */
+  const lidMat = () => new THREE.MeshStandardMaterial({ color: 0x3a4a3a, roughness: 0.6, metalness: 0.1 });
+  const bossCx = hW - t - 5, bossCz = hD - t - 5;
+  [[bossCx, bossCz],[-bossCx, bossCz],[bossCx,-bossCz],[-bossCx,-bossCz]].forEach(([bx, bz]) => {
+    // Boss column from floor to just below lid seam
+    makeCyl(encGroup, 5, 5, H - t, bx, t + (H-t)/2, bz, lidMat());
+    // M3 hole indicator (thin disk at lid level)
+    const holeMat = new THREE.MeshBasicMaterial({ color: 0x888888, side: THREE.DoubleSide });
+    const holeM = new THREE.Mesh(new THREE.CircleGeometry(1.5, 16), holeMat);
+    holeM.rotation.x = -Math.PI/2;
+    holeM.position.set(bx, H + 0.1, bz);
+    encGroup.add(holeM);
+  });
+
+  /* ════════════════════════════════════════════════
+     COMPONENTS
+     ════════════════════════════════════════════════ */
+  compGroup = new THREE.Group();
+  compGroup.visible = p.showComponents;
+  scene.add(compGroup);
+
+  mountGroup = new THREE.Group();
+  mountGroup.visible = p.showMounts;
+  scene.add(mountGroup);
+
+  const floorY = t; // interior floor Y
+
+  /* Helper: floor standoffs + PCB box + image plane */
+  function placePCB(cx, cz, pcbW, pcbD, pcbH=1.6, standoffH=5, standoffR=1.25, holes=[], color=0x1a3a1a, imgURL='') {
+    addStandoffs(mountGroup, holes, floorY, standoffH, standoffR);
+    const pcbY = floorY + standoffH + pcbH/2;
+    const mat  = new THREE.MeshStandardMaterial({ color, roughness: 0.55, metalness: 0.25 });
+    makeBox(compGroup, pcbW, pcbH, pcbD, cx, pcbY, cz, mat);
+    if (imgURL) addImagePlane(compGroup, imgURL, pcbW*0.92, pcbD*0.92, cx, pcbY + pcbH/2, cz);
+    return pcbY + pcbH; // return top-of-PCB Y
+  }
+
+  /* ── Pi Zero 2W: 65×30mm, 5mm standoffs, M2.5 holes at ±29mm / ±11.5mm ── */
+  // Place Pi roughly centre-left of floor
+  const piX = -10, piZ = 5;
+  const piHoles = [
+    [piX-29, piZ-11.5], [piX+29, piZ-11.5],
+    [piX-29, piZ+11.5], [piX+29, piZ+11.5],
+  ];
+  placePCB(piX, piZ, 65, 30, 1.6, 5, 1.25, piHoles, 0x1a3a1a,
+    'https://cdn-shop.adafruit.com/970x728/5291-00.jpg');
+
+  /* ── Camera Module v3 NoIR: 25×24mm, mounted vertically on front wall ──
+     Lens at Y=19.61mm from FPC edge (bottom of PCB).
+     2× M2 holes: 3.875mm from short (25mm) edges = at z=3.875 and z=20.125 from PCB bottom.
+     C-C horizontally = 23.862mm (±11.931mm from PCB centre).
+     Mount with PCB face against interior of front wall, camera rotated 90° (landscape).
+  */
+  const camFaceZ = -hD + t + 1.6/2;       // PCB face flush with front wall interior
+  const camY     = floorY + 25;            // height off floor (lens centred at this height)
+  const camX     = -hW/2;                  // left-ish area of front wall
+
+  // Camera PCB (rotated: 25mm tall, 24mm wide when viewed from front)
+  const camMat = new THREE.MeshStandardMaterial({ color: 0x1a2a3a, roughness: 0.55, metalness: 0.25 });
+  makeBox(compGroup, 24, 25, 1.6, camX, camY + 12.5 - 19.61, camFaceZ, camMat);
+
+  // Camera lens barrel (cylinder pointing forward through front wall)
+  const lensMat = new THREE.MeshStandardMaterial({ color: 0x111111, roughness: 0.3, metalness: 0.7 });
+  const lensM = new THREE.Mesh(new THREE.CylinderGeometry(6, 6, 11, 24), lensMat);
+  lensM.rotation.x = Math.PI/2;  // point along -Z
+  lensM.position.set(camX, camY, -hD - 5.5);  // protrudes outside front wall
+  compGroup.add(lensM);
+
+  // Camera M2 mounting holes on front wall (brass inserts)
+  const camHoleY = camY + 12.5 - 19.61;  // PCB centre Y
+  [camX - 11.931, camX + 11.931].forEach(hx => {
+    const hMat = BRASS_MAT();
+    const hm = new THREE.Mesh(new THREE.CylinderGeometry(1.0, 1.0, t+2, 12), hMat);
+    hm.rotation.x = Math.PI/2;
+    hm.position.set(hx, camHoleY + 8.125 - 4.0, -hD);
+    mountGroup.add(hm);
+  });
+
+  /* ── HC-SR501 PIR: 32×24mm, 15mm dome, 2× M2 holes 28mm C-C on 32mm axis ── */
+  const pirX = hW * 0.3, pirZ = -(hD - t - 16 - 1.6/2);  // near front wall, right area
+  const pirY = floorY + 5 + 1.6/2;
+  const pirMat = new THREE.MeshStandardMaterial({ color: 0x3a2a1a, roughness: 0.6, metalness: 0.2 });
+  // PIR PCB (32×24mm laid flat)
+  makeBox(compGroup, 32, 1.6, 24, pirX, pirY, pirZ, pirMat);
+  // Fresnel dome: 23mm dia, 15mm tall
+  const domeMat = new THREE.MeshStandardMaterial({ color: 0xddddbb, roughness: 0.1, metalness: 0.0, transparent: true, opacity: 0.55 });
+  const domeM = new THREE.Mesh(new THREE.SphereGeometry(11.5, 24, 12, 0, Math.PI*2, 0, Math.PI/2), domeMat);
+  domeM.position.set(pirX, pirY + 0.8 + 11.5 * 0.65, pirZ);
+  compGroup.add(domeM);
+  // PIR standoffs
+  [pirX-14, pirX+14].forEach(hx => {
+    addStandoffs(mountGroup, [[hx, pirZ]], floorY, 5, 1.0);
+  });
+
+  /* ── MAX98357A Amp: 19.4×17.8mm, 2× M2.5 holes 14.3mm C-C (horizontal) ── */
+  const ampX = -(hW - t - 12), ampZ = 10;
+  const ampHoles = [[ampX - 7.15, ampZ], [ampX + 7.15, ampZ]];
+  placePCB(ampX, ampZ, 19.4, 17.8, 1.6, 5, 1.25, ampHoles, 0x2a1a3a,
+    'https://cdn-shop.adafruit.com/970x728/3006-04.jpg');
+
+  /* ── TP4056 Charger: 28×17mm, no PCB holes (friction cradle) ── */
+  const tpX = hW * 0.45, tpZ = hD * 0.35;
+  const tpMat = new THREE.MeshStandardMaterial({ color: 0x1a2a2a, roughness: 0.6, metalness: 0.2 });
+  // PCB
+  makeBox(compGroup, 28, 1.6, 17, tpX, floorY + 1.6/2, tpZ, tpMat);
+  // Cradle rail sides (friction mount)
+  const cradleMat = new THREE.MeshStandardMaterial({ color: 0x2a3a2a, roughness: 0.6, metalness: 0.1 });
+  makeBox(mountGroup, 1.5, 5, 17, tpX - 15.25, floorY + 2.5, tpZ, cradleMat);
+  makeBox(mountGroup, 1.5, 5, 17, tpX + 15.25, floorY + 2.5, tpZ, cradleMat);
+  addImagePlane(compGroup, 'https://www.addicore.com/cdn/shop/products/AD310-2.jpg?v=1689765930',
+    26, 15, tpX, floorY + 1.6 + 0.2, tpZ);
+
+  /* ── 40mm Speaker: r=20mm, 4× M3 on 32mm bolt circle, mounted on right wall ── */
+  const spkX = hW - t/2;  // at right wall
+  const spkY = H * 0.45;
+  const spkZ = 0;
+  // Speaker cone (cylinder)
+  const spkMat = new THREE.MeshStandardMaterial({ color: 0x222244, roughness: 0.7, metalness: 0.4 });
+  const spkM = new THREE.Mesh(new THREE.CylinderGeometry(20, 20, 20, 32), spkMat);
+  spkM.rotation.z = Math.PI/2;  // axis along X
+  spkM.position.set(spkX - 10, spkY, spkZ);
+  compGroup.add(spkM);
+  // Speaker cone face
+  const coneMat = new THREE.MeshStandardMaterial({ color: 0x444488, roughness: 0.9 });
+  const coneM = new THREE.Mesh(new THREE.CircleGeometry(18, 32), coneMat);
+  coneM.rotation.y = Math.PI/2;
+  coneM.position.set(spkX, spkY, spkZ);
+  compGroup.add(coneM);
+  // M3 bolt hole posts on right wall (4× on 32mm bolt circle)
+  for (let i = 0; i < 4; i++) {
+    const angle = Math.PI/4 + i * Math.PI/2;
+    const by = spkY + 16 * Math.sin(angle);
+    const bz = spkZ + 16 * Math.cos(angle);
+    const pm = new THREE.Mesh(new THREE.CylinderGeometry(2.5, 2.5, t+2, 12), BRASS_MAT());
+    pm.rotation.z = Math.PI/2;
+    pm.position.set(hW - t/2, by, bz);
+    mountGroup.add(pm);
+  }
+
+  /* ── 18650 Battery Pack: ~70×18×35mm, rear of enclosure ── */
+  const batZ = hD - t - 17.5;  // towards back
+  const batMat = new THREE.MeshStandardMaterial({ color: 0x3a1a1a, roughness: 0.7, metalness: 0.3 });
+  makeBox(compGroup, 70, 18, 35, 5, floorY + 9, batZ, batMat);
+  addImagePlane(compGroup, 'https://cdn-shop.adafruit.com/970x728/354-03.jpg', 68, 33, 5, floorY + 18, batZ);
+
+  /* ════════════════════════════════════════════════
+     FACE CUTOUT INDICATORS
+     ════════════════════════════════════════════════ */
+  cutoutGroup = new THREE.Group();
+  cutoutGroup.visible = p.showCutouts;
+  scene.add(cutoutGroup);
+
+  const frontZ = -hD + t * 0.5;
+
+  // Camera lens cutout: 12mm radius, centred on lens barrel
+  makeCutoutRing(cutoutGroup, 6.5, 0x0055ff, camX, camY, frontZ, 0, 0);
+
+  // PIR dome cutout: 13mm radius (26mm diameter), front wall
+  makeCutoutRing(cutoutGroup, 13, 0xff8800, pirX, pirY + 8, frontZ, 0, 0);
+
+  // Speaker grille on right wall: 20mm radius (40mm) + grille holes
+  const rightX = hW - t * 0.5;
+  makeCutoutRing(cutoutGroup, 21, 0xaa00ff, rightX, spkY, spkZ, 0, Math.PI/2);
+  // Inner grille port (5× vertical slots)
+  for (let i = -2; i <= 2; i++) {
+    const slotMat = new THREE.MeshBasicMaterial({ color: 0xaa00ff, transparent: true, opacity: 0.4, side: THREE.DoubleSide });
+    const slotM = new THREE.Mesh(new THREE.PlaneGeometry(2, 28), slotMat);
+    slotM.rotation.y = Math.PI/2;
+    slotM.position.set(rightX, spkY, spkZ + i*5);
+    cutoutGroup.add(slotM);
+  }
+
+  // USB-C port slot on bottom-rear of front wall: 9mm wide × 3mm tall
+  makeMicroPort(cutoutGroup, 9, 3.5, camX + 24, floorY + 3, -hD, Math.PI/2);
+  // Teal border outline for USB slot
+  const usbBorderMat = new THREE.MeshBasicMaterial({ color: 0x00cc88, side: THREE.DoubleSide });
+  const usbBorder = new THREE.Mesh(new THREE.RingGeometry(4.5, 5.8, 4), usbBorderMat);
+  usbBorder.rotation.y = Math.PI/2;
+  usbBorder.position.set(-hW + t*0.5, floorY + 4, tpZ);
+  cutoutGroup.add(usbBorder);
+
+  updateInfo(p);
+}
+
+/* ── Control wiring ── */
+const LABELS = {
+  'ctrl-width':  ['val-width',  v => v + ' mm'],
+  'ctrl-height': ['val-height', v => v + ' mm'],
+  'ctrl-depth':  ['val-depth',  v => v + ' mm'],
+  'ctrl-wall':   ['val-wall',   v => v + ' mm'],
+  'ctrl-lid':    ['val-lid',    v => v + ' mm'],
+};
+
+let debounceTimer = null;
+function scheduleUpdate() {
+  clearTimeout(debounceTimer);
+  debounceTimer = setTimeout(updateEnclosure, 80);
+}
+
+Object.entries(LABELS).forEach(([id, [valId, fmt]]) => {
+  const input = document.getElementById(id);
+  const disp  = document.getElementById(valId);
+  input.addEventListener('input', () => { disp.textContent = fmt(input.value); scheduleUpdate(); });
+});
+
+['ctrl-components','ctrl-mounts','ctrl-cutouts'].forEach(id => {
+  document.getElementById(id).addEventListener('change', updateEnclosure);
+});
+
+/* ── Resize ── */
+function onResize() {
+  const w = wrap.clientWidth, h = wrap.clientHeight;
+  if (!w || !h) return;
+  renderer.setSize(w, h);
+  camera.aspect = w / h;
+  camera.updateProjectionMatrix();
+}
+new ResizeObserver(onResize).observe(wrap);
+onResize();
+
+/* ── Render loop ── */
+(function animate() { requestAnimationFrame(animate); controls.update(); renderer.render(scene, camera); })();
+
+/* ── Initial build ── */
+updateEnclosure();
+</script>
+{% endblock %}

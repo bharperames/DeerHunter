@@ -741,6 +741,11 @@ async def components_page(request: Request, auth=Depends(require_auth)):
     return templates.TemplateResponse("components.html", {"request": request})
 
 
+@app.get("/enclosure", response_class=HTMLResponse)
+async def enclosure_page(request: Request, auth=Depends(require_auth)):
+    return templates.TemplateResponse("enclosure.html", {"request": request})
+
+
 @app.get("/status", response_class=HTMLResponse)
 async def system_status(request: Request, auth=Depends(require_auth)):
     uptime_s = None
