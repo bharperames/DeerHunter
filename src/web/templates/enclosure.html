@@ -2145,11 +2145,49 @@ function updateEnclosure() {
     ));
     lidPrint.computeVertexNormals();
 
-    // Keep body and lid as separate manifold objects for 3MF
-    exportParts    = [bodyPrint, lidPrint];
-    // Merge (non-indexed copies) for STL — slicers repair STL automatically
-    const toNI = g => { const ni = g.toNonIndexed(); ni.computeVertexNormals(); return ni; };
-    exportGeometry = BufferGeometryUtils.mergeGeometries([toNI(bodyPrint), toNI(lidPrint)], false);
+    // --- Battery cradle (base plate + end stops + zip-tie tabs with slots) ---
+    // Constants mirror the visual section (those are block-scoped so redeclared here).
+    const EXP_MARGIN = 3, EXP_BASE_T = 2;
+    const EXP_CW = BAT_W + EXP_MARGIN * 2;   // 76 mm
+    const EXP_CD = BAT_D + EXP_MARGIN * 2;   // 41 mm
+    const EXP_STOP_T = 3, EXP_STOP_H = 12;
+    const EXP_TAB_W = 7, EXP_TAB_H = BAT_H + 8, EXP_TAB_D = 3;
+    const EXP_SLOT_W = 3.5, EXP_SLOT_H = 2.5;
+    const EXP_slotY  = floorY + EXP_BASE_T + BAT_H * 0.65;
+    const EXP_tabZf  = batZ - BAT_D / 2 - EXP_MARGIN - EXP_TAB_D / 2;
+    const EXP_tabZr  = batZ + BAT_D / 2 + EXP_MARGIN + EXP_TAB_D / 2;
+    const EXP_stopX0 = batX - BAT_W / 2 - EXP_MARGIN - EXP_STOP_T / 2;
+    const EXP_stopX1 = batX + BAT_W / 2 + EXP_MARGIN + EXP_STOP_T / 2;
+
+    const cradleGeos = [
+      // Base plate
+      geoAt(new THREE.BoxGeometry(EXP_CW, EXP_BASE_T, EXP_CD),
+        batX, floorY + EXP_BASE_T / 2, batZ),
+      // End stops
+      geoAt(new THREE.BoxGeometry(EXP_STOP_T, EXP_STOP_H, EXP_CD),
+        EXP_stopX0, floorY + EXP_BASE_T + EXP_STOP_H / 2, batZ),
+      geoAt(new THREE.BoxGeometry(EXP_STOP_T, EXP_STOP_H, EXP_CD),
+        EXP_stopX1, floorY + EXP_BASE_T + EXP_STOP_H / 2, batZ),
+    ];
+    // Zip-tie tabs (4) — each with a slot punched through for the zip tie
+    for (const tx of [batX - BAT_W * 0.28, batX + BAT_W * 0.28]) {
+      for (const tz of [EXP_tabZf, EXP_tabZr]) {
+        const tabGeo  = geoAt(new THREE.BoxGeometry(EXP_TAB_W, EXP_TAB_H, EXP_TAB_D),
+          tx, floorY + EXP_BASE_T + EXP_TAB_H / 2, tz);
+        const slotGeo = geoAt(new THREE.BoxGeometry(EXP_SLOT_W, EXP_SLOT_H, EXP_TAB_D + 0.5),
+          tx, EXP_slotY, tz);
+        cradleGeos.push(csgSubtract(tabGeo, [slotGeo]));
+      }
+    }
+    // Merge cradle pieces + body shell into one geometry before export
+    const toNI = g => { const ni = g.index ? g.toNonIndexed() : g; ni.computeVertexNormals(); return ni; };
+    const mergedBody = BufferGeometryUtils.mergeGeometries(
+      [toNI(bodyPrint), ...cradleGeos.map(toNI)], false);
+    mergedBody.computeVertexNormals();
+
+    // Two export objects: merged body+cradle, and lid
+    exportParts    = [mergedBody, lidPrint];
+    exportGeometry = BufferGeometryUtils.mergeGeometries([mergedBody, toNI(lidPrint)], false);
 
     const stlBtn = document.getElementById('btn-export-stl');
     const mfBtn  = document.getElementById('btn-export-3mf');
