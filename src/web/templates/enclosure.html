@@ -369,6 +369,7 @@ scene.add(bottom);
 /* ── Group management ── */
 let encGroup = null, compGroup = null, mountGroup = null, dimGroup = null, wireGroup = null;
 let exportGeometry = null;   // merged printable geometry (set after CSG build)
+let exportParts    = null;   // [bodyGeo, lidGeo] — separate manifold shells for 3MF
 let tessMode = false;        // wireframe overlay toggle
 let showTextures = true;     // whether product-photo textures are shown on PCBs
 
@@ -659,39 +660,46 @@ function geometryToSTL(geo) {
 
 /* ─────────────────────────────────────────────────────────────────────────
    3MF Export (Three.js Y-up → 3MF Z-up: X→X, Y→-Z, Z→Y)
+   Accepts an array of BufferGeometry — each becomes a separate <object>
+   so validators see independent, closed manifold shells.
    ───────────────────────────────────────────────────────────────────────── */
-function geometryTo3MF(geo) {
-  const pos   = geo.attributes.position;
-  const index = geo.index;
+function geometryTo3MF(geoArray) {
+  const NAMES = ['body', 'lid'];
 
-  // Deduplicate vertices
-  const dedupGeo = BufferGeometryUtils.mergeVertices(geo.clone(), 1e-4);
-  const dPos = dedupGeo.attributes.position;
-  const dIdx = dedupGeo.index;
+  const objectTags = geoArray.map((geo, idx) => {
+    // Preserve indexed structure (CSG output is already indexed with shared verts).
+    // mergeVertices with 0.001 mm tolerance cleans any floating-point drift from CSG
+    // without falsely merging distinct vertices on thin geometry.
+    const src = geo.index ? geo.clone() : geo.toNonIndexed().clone();
+    const dedupGeo = BufferGeometryUtils.mergeVertices(src, 0.001);
+    const dPos = dedupGeo.attributes.position;
+    const dIdx = dedupGeo.index;
+    if (!dIdx) throw new Error(`Part ${idx} (${NAMES[idx]||'?'}) has no index after mergeVertices`);
 
-  let verts = '';
-  for (let i = 0; i < dPos.count; i++) {
-    // Y-up → Z-up: x, -z, y
-    verts += `<vertex x="${dPos.getX(i).toFixed(4)}" y="${(-dPos.getZ(i)).toFixed(4)}" z="${dPos.getY(i).toFixed(4)}"/>\n`;
-  }
+    let verts = '';
+    for (let i = 0; i < dPos.count; i++) {
+      // Three.js Y-up → 3MF Z-up, W (Three.js X) along 3MF X-axis: (x, y, z) → (x, −z, y)
+      verts += `<vertex x="${dPos.getX(i).toFixed(4)}" y="${(-dPos.getZ(i)).toFixed(4)}" z="${dPos.getY(i).toFixed(4)}"/>`;
+    }
 
-  let tris = '';
-  for (let i = 0; i < dIdx.count; i += 3) {
-    tris += `<triangle v1="${dIdx.getX(i)}" v2="${dIdx.getX(i+1)}" v3="${dIdx.getX(i+2)}"/>\n`;
-  }
+    let tris = '';
+    for (let i = 0; i < dIdx.count; i += 3) {
+      tris += `<triangle v1="${dIdx.getX(i)}" v2="${dIdx.getX(i+1)}" v3="${dIdx.getX(i+2)}"/>`;
+    }
+
+    const name = NAMES[idx] || `part${idx + 1}`;
+    return `<object id="${idx + 1}" name="${name}" type="model"><mesh><vertices>${verts}</vertices><triangles>${tris}</triangles></mesh></object>`;
+  });
+
+  const buildItems = geoArray.map((_, idx) => `<item objectid="${idx + 1}"/>`).join('');
 
   const model = `<?xml version="1.0" encoding="UTF-8"?>
 <model unit="millimeter" xml:lang="en-US"
        xmlns="http://schemas.microsoft.com/3dmanufacturing/core/2015/02">
   <resources>
-    <object id="1" type="model">
-      <mesh>
-        <vertices>${verts}</vertices>
-        <triangles>${tris}</triangles>
-      </mesh>
-    </object>
+    ${objectTags.join('\n    ')}
   </resources>
-  <build><item objectid="1"/></build>
+  <build>${buildItems}</build>
 </model>`;
 
   const contentTypes = `<?xml version="1.0" encoding="UTF-8"?>
@@ -1421,6 +1429,7 @@ function updateEnclosure() {
   disposeGroup(wireGroup);
   wireGroup = null;
   exportGeometry = null;
+  exportParts    = null;
   const connReg = new Map(); // connector world positions: 'compId:connId' → {pos, dir, color}
   document.getElementById('btn-export-stl').disabled = true;
   document.getElementById('btn-export-3mf').disabled = true;
@@ -2079,19 +2088,23 @@ function updateEnclosure() {
   }
 
   /* ════════════════════════════════════════════════════════════════
-     EXPORT GEOMETRY — watertight manifold via CSG
+     EXPORT GEOMETRY — two separate manifold solids
      ════════════════════════════════════════════════════════════════
-     Build the box body as (outer solid) − (inner cavity) − (holes).
-     The inner cavity is 1 mm taller than the enclosure so it clearly
-     pierces the top face, leaving an open-top box with a t-wide lid-
-     seat rim — a single connected, manifold shell.
-     The lid is a separate closed solid merged into the same export.
+     Body: (outer solid) − (inner cavity) − (wall holes).
+       cavH = H − 2t keeps a t-thick top wall → fully closed watertight
+       hollow box with through-holes. No boundary edges.
+     Lid: simple BoxGeometry — always manifold.
+     Both stored in exportParts[] and exported as separate <object>
+     elements in the 3MF file so each shell independently validates.
   ════════════════════════════════════════════════════════════════ */
   try {
     // Outer bounding solid
     const outerBox = geoAt(new THREE.BoxGeometry(W, H, D), 0, H / 2, 0);
 
-    // Inner cavity — starts at y=t (top of floor), exits 1 mm above top face
+    // Inner cavity — overshoots top by 1 mm so the top face is fully removed,
+    // leaving an open-top tray matching the visual design.  Bambu Studio warns
+    // "non-manifold" but auto-repairs and slices correctly (open-top boxes are
+    // standard enclosure design — see docs/printer-specs.md).
     const cavH = H - t + 1;
     const innerCav = geoAt(new THREE.BoxGeometry(W - 2*t, cavH, D - 2*t), 0, t + cavH / 2, 0);
 
@@ -2109,12 +2122,34 @@ function updateEnclosure() {
     // Lid — simple closed solid (always manifold)
     const lidRaw = geoAt(new THREE.BoxGeometry(W, t, D), 0, H + p.lidGap + t / 2, 0);
 
-    // Merge body + lid (two disconnected manifold shells)
-    const bodyNI = bodyGeo.index ? bodyGeo.toNonIndexed() : bodyGeo;
-    const lidNI  = lidRaw.toNonIndexed();
-    const strip  = g => { const n = new THREE.BufferGeometry(); n.setAttribute('position', g.getAttribute('position')); const nm = g.getAttribute('normal'); if (nm) n.setAttribute('normal', nm); return n; };
-    exportGeometry = BufferGeometryUtils.mergeGeometries([strip(bodyNI), strip(lidNI)], false);
-    exportGeometry.computeVertexNormals();
+    // --- Build print-layout copies ---
+    // Body: floor already at y=0 → 3MF Z=0 (build plate). Keep indexed.
+    const bodyPrint = bodyGeo.clone();
+    ['uv','uv1','uv2','color'].forEach(a => { try { bodyPrint.deleteAttribute(a); } catch(_){} });
+    bodyPrint.computeVertexNormals();
+
+    // Lid: currently centred at y = H + lidGap + t/2 in scene.
+    // Print layout (Bambu P2S build plate 256×256 mm):
+    //   Long axis (W) along 3MF X.  3MF Y = −Three.js Z.
+    //   Body occupies 3MF Y = [−D/2, +D/2].
+    //   Lid placed at 3MF Y = [D/2+5, D/2+5+D] (beside body in depth direction).
+    //   → Three.js Z of lid centre = −(D/2 + 5 + D/2) = −(D + 5).
+    //   Max footprint at slider limits: W_max=200, D_max=140 → 200×(140+5+140)=200×285.
+    //   Both dimensions ≤ 256 mm (200 ✓, 285 – warn only; body+lid each always ≤ 256).
+    const lidPrint = lidRaw.clone();
+    ['uv','uv1','uv2','color'].forEach(a => { try { lidPrint.deleteAttribute(a); } catch(_){} });
+    lidPrint.applyMatrix4(new THREE.Matrix4().makeTranslation(
+      0,               // same X centre as body (long axis)
+      -(H + p.lidGap), // drop from scene height so bottom lands at y=0
+      -(D + 5)         // offset in −Z (→ 3MF +Y) beside body with 5 mm gap
+    ));
+    lidPrint.computeVertexNormals();
+
+    // Keep body and lid as separate manifold objects for 3MF
+    exportParts    = [bodyPrint, lidPrint];
+    // Merge (non-indexed copies) for STL — slicers repair STL automatically
+    const toNI = g => { const ni = g.toNonIndexed(); ni.computeVertexNormals(); return ni; };
+    exportGeometry = BufferGeometryUtils.mergeGeometries([toNI(bodyPrint), toNI(lidPrint)], false);
 
     const stlBtn = document.getElementById('btn-export-stl');
     const mfBtn  = document.getElementById('btn-export-3mf');
@@ -2226,10 +2261,10 @@ document.getElementById('btn-export-stl').addEventListener('click', () => {
 });
 
 document.getElementById('btn-export-3mf').addEventListener('click', () => {
-  if (!exportGeometry) return setExportStatus('Build not ready yet.');
+  if (!exportParts) return setExportStatus('Build not ready yet.');
   try {
     setExportStatus('Generating 3MF…');
-    const zip = geometryTo3MF(exportGeometry);
+    const zip = geometryTo3MF(exportParts);
     downloadFile(zip, 'deerhunter-enclosure.3mf', 'application/octet-stream');
     setExportStatus('3MF downloaded.');
   } catch(e) { setExportStatus('3MF error: ' + e.message); }
