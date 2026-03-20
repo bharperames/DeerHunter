@@ -25,7 +25,7 @@
     top: 10px; left: 12px;
     font-family: monospace;
     font-size: 0.65rem;
-    color: #444;
+    color: #888;
     pointer-events: none;
     line-height: 1.55;
   }
@@ -44,13 +44,13 @@
   .ep-section { border-bottom: 1px solid #1e1e1e; padding: 0.7rem 0.85rem 0.75rem; }
   .ep-section-title {
     font-size: 0.6rem; font-weight: 700; text-transform: uppercase;
-    letter-spacing: 0.1em; color: #555; margin-bottom: 0.6rem;
+    letter-spacing: 0.1em; color: #888; margin-bottom: 0.6rem;
   }
 
   .ep-row { display: flex; flex-direction: column; gap: 0.18rem; margin-bottom: 0.55rem; }
   .ep-row:last-child { margin-bottom: 0; }
   .ep-label-row { display: flex; justify-content: space-between; align-items: baseline; }
-  .ep-label { font-size: 0.7rem; color: #aaa; font-family: monospace; }
+  .ep-label { font-size: 0.7rem; color: #ddd; font-family: monospace; }
   .ep-val { font-size: 0.68rem; font-family: monospace; color: #6abf69; min-width: 38px; text-align: right; }
 
   input[type="range"] {
@@ -80,20 +80,20 @@
     cursor: pointer; flex-shrink: 0; margin: 0; padding: 0;
     border: none; background: none;
   }
-  .ep-check-label { font-size: 0.72rem; color: #aaa; font-family: monospace; user-select: none; }
+  .ep-check-label { font-size: 0.72rem; color: #ddd; font-family: monospace; user-select: none; }
 
   .ep-info-grid {
     display: grid; grid-template-columns: auto 1fr;
     gap: 0.22rem 0.65rem; font-size: 0.7rem; font-family: monospace;
   }
-  .ep-info-dt { color: #555; }
-  .ep-info-dd { color: #aaa; }
+  .ep-info-dt { color: #999; }
+  .ep-info-dd { color: #eee; }
   .ep-info-dd--accent { color: #6abf69; }
 
   .ep-legend { display: flex; flex-direction: column; gap: 0.28rem; }
   .ep-legend-row {
     display: flex; align-items: center; gap: 0.5rem;
-    font-size: 0.65rem; font-family: monospace; color: #777;
+    font-size: 0.65rem; font-family: monospace; color: #ccc;
   }
   .ep-legend-swatch { width: 10px; height: 10px; border-radius: 2px; flex-shrink: 0; }
 </style>
@@ -160,15 +160,10 @@
       <div class="ep-row">
         <div class="ep-label-row">
           <label class="ep-label" for="ctrl-opacity">Shell opacity</label>
-          <span class="ep-val" id="val-opacity">70%</span>
+          <span class="ep-val" id="val-opacity">10%</span>
         </div>
-        <input type="range" id="ctrl-opacity" min="0" max="100" step="5" value="70">
+        <input type="range" id="ctrl-opacity" min="0" max="100" step="5" value="10">
       </div>
-
-      <label class="ep-check-row">
-        <input type="checkbox" id="ctrl-components" checked>
-        <span class="ep-check-label">Show components</span>
-      </label>
 
       <label class="ep-check-row">
         <input type="checkbox" id="ctrl-mounts" checked>
@@ -176,18 +171,29 @@
       </label>
 
       <label class="ep-check-row">
-        <input type="checkbox" id="ctrl-cutouts" checked>
-        <span class="ep-check-label">Show cutout indicators</span>
+        <input type="checkbox" id="ctrl-dims">
+        <span class="ep-check-label">Show dimensions</span>
       </label>
 
-      <div style="margin-top:0.5rem;">
-        <button id="btn-tess"
-          style="width:100%;padding:0.3rem 0;background:#1a2a1a;border:1px solid #333;
-                 color:#6abf69;font-size:0.7rem;font-family:monospace;cursor:pointer;
-                 border-radius:3px;letter-spacing:0.05em;">
-          Tessellation: OFF
-        </button>
-      </div>
+      <label class="ep-check-row">
+        <input type="checkbox" id="ctrl-tess">
+        <span class="ep-check-label">Show tessellation</span>
+      </label>
+
+      <label class="ep-check-row">
+        <input type="checkbox" id="ctrl-textures" checked>
+        <span class="ep-check-label">Show component art</span>
+      </label>
+
+      <label class="ep-check-row">
+        <input type="checkbox" id="ctrl-pcbwire">
+        <span class="ep-check-label">Show PCB outlines</span>
+      </label>
+
+      <label class="ep-check-row">
+        <input type="checkbox" id="ctrl-enclosure-only">
+        <span class="ep-check-label">Enclosure only</span>
+      </label>
     </div>
 
     {# — Export — #}
@@ -208,7 +214,7 @@
         </button>
       </div>
       <div id="export-status"
-        style="font-size:0.62rem;font-family:monospace;color:#555;margin-top:0.35rem;
+        style="font-size:0.62rem;font-family:monospace;color:#aaa;margin-top:0.35rem;
                min-height:0.9rem;"></div>
     </div>
 
@@ -270,9 +276,12 @@
 <script type="module">
 import * as THREE from 'three';
 import { OrbitControls }     from 'three/addons/controls/OrbitControls.js';
-import { BufferGeometryUtils } from 'three/addons/utils/BufferGeometryUtils.js';
+import * as BufferGeometryUtils from 'three/addons/utils/BufferGeometryUtils.js';
 import { Evaluator, Brush, SUBTRACTION } from 'three-bvh-csg';
 import * as fflate from 'fflate';
+import { Line2 }        from 'three/addons/lines/Line2.js';
+import { LineMaterial } from 'three/addons/lines/LineMaterial.js';
+import { LineGeometry } from 'three/addons/lines/LineGeometry.js';
 
 const csgEval = new Evaluator();
 
@@ -297,7 +306,7 @@ camera.lookAt(0, 40, 0);
 const controls = new OrbitControls(camera, renderer.domElement);
 controls.enableDamping  = true;
 controls.dampingFactor  = 0.07;
-controls.minDistance    = 50;
+controls.minDistance    = 5;
 controls.maxDistance    = 900;
 controls.target.set(0, 40, 0);
 controls.update();
@@ -358,9 +367,10 @@ scene.add(bottom);
 })();
 
 /* ── Group management ── */
-let encGroup = null, compGroup = null, mountGroup = null, cutoutGroup = null, wireGroup = null;
+let encGroup = null, compGroup = null, mountGroup = null, dimGroup = null, wireGroup = null;
 let exportGeometry = null;   // merged printable geometry (set after CSG build)
 let tessMode = false;        // wireframe overlay toggle
+let showTextures = true;     // whether product-photo textures are shown on PCBs
 
 function disposeGroup(g) {
   if (!g) return;
@@ -372,6 +382,117 @@ function disposeGroup(g) {
     }
   });
   scene.remove(g);
+}
+
+/* ─────────────────────────────────────────────────────────────────────────
+   Dimension annotation helpers
+   ─────────────────────────────────────────────────────────────────────────
+
+   makeDim(parent, p1, p2, outVec, label)
+     Draws an engineering dimension line between p1 and p2, offset outward by
+     outVec, with extension lines back to geometry and a text label at the
+     midpoint. All lines render on top (depthTest: false) so they stay readable
+     through opaque walls.
+   ─────────────────────────────────────────────────────────────────────────── */
+
+// Shared LineMaterial for enclosure exterior dimension lines.
+// depthTest:false keeps them readable through opaque walls.
+// Resolution must match the render target — updated in onResize().
+const DIM_LINE_MAT = new LineMaterial({
+  color: 0x6699dd, linewidth: 3,
+  transparent: true, opacity: 0.85, depthTest: false,
+  resolution: new THREE.Vector2(800, 600), // overwritten by onResize
+});
+
+// Separate LineMaterial for in-plane PCB wireframe dimension lines.
+// depthTest:true means they're occluded by geometry in front (e.g. enclosure
+// walls) and don't bleed through the back of component boxes.
+const PCB_LINE_MAT = new LineMaterial({
+  color: 0x6699dd, linewidth: 2,
+  transparent: true, opacity: 0.9, depthTest: true,
+  resolution: new THREE.Vector2(800, 600), // overwritten by onResize
+});
+
+// Helper: draw a thick line segment between two Vector3 points
+function fatLine(parent, from, to) {
+  const geo = new LineGeometry();
+  geo.setPositions([from.x, from.y, from.z, to.x, to.y, to.z]);
+  const line = new Line2(geo, DIM_LINE_MAT);
+  line.computeLineDistances();
+  parent.add(line);
+}
+
+/*
+ * makeDimLabel — places a flat text mesh IN the dimension plane.
+ *
+ * The PlaneGeometry is oriented so its local X aligns with the dimension
+ * direction (dimDir) and its local Y aligns with the outward offset direction
+ * (outDir), placing the text coplanar with the annotation lines.
+ * DoubleSide ensures readability from either face of the plane.
+ */
+function makeDimLabel(text, position /*, dimDir, outDir — unused; sprite auto-faces camera */) {
+  const c   = document.createElement('canvas');
+  const ctx = c.getContext('2d');
+  const fs  = 28;
+  ctx.font  = `bold ${fs}px monospace`;
+  const tw  = Math.ceil(ctx.measureText(text).width);
+  const pad = 10;
+  c.width   = tw + pad * 2;
+  c.height  = fs + pad * 2;
+  // Redraw after canvas resize (resize clears state)
+  ctx.font  = `bold ${fs}px monospace`;
+  ctx.fillStyle = '#b8d4ff';
+  ctx.textAlign    = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.fillText(text, c.width / 2, c.height / 2);
+
+  const tex = new THREE.CanvasTexture(c);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  const mat = new THREE.SpriteMaterial({ map: tex, transparent: true, depthTest: false });
+  const sprite = new THREE.Sprite(mat);
+  // Store canvas aspect so the render loop can rescale to a fixed screen-pixel size.
+  sprite.userData.labelAspect = c.width / c.height;
+  // Initial world-space size (overwritten each frame by animate loop)
+  sprite.scale.set(sprite.userData.labelAspect * 6, 6, 1);
+  sprite.position.copy(position);
+  return sprite;
+}
+
+function makeDim(parent, p1, p2, outVec, label) {
+  const a   = p1.clone().add(outVec);
+  const b   = p2.clone().add(outVec);
+  const dir = b.clone().sub(a).normalize();
+  const span = a.distanceTo(b);
+  // Extension lines from feature edge to the dimension line
+  for (const [src, dst] of [[p1, a], [p2, b]])
+    fatLine(parent, src, dst);
+
+  // Arrowhead cones at each end of the dimension line
+  const AL = 2.8, AR = 0.55;
+  const aGeo = new THREE.ConeGeometry(AR, AL, 5);
+  const aMatBase = new THREE.MeshBasicMaterial({ color: 0x6699dd, transparent: true, opacity: 0.85, depthTest: false });
+  for (const [pt, fwd] of [[a, dir], [b, dir.clone().negate()]]) {
+    const cone = new THREE.Mesh(aGeo.clone(), aMatBase.clone());
+    cone.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), fwd);
+    cone.position.copy(pt).addScaledVector(fwd, AL / 2);
+    parent.add(cone);
+  }
+
+  // Dimension line (gap at centre for label)
+  const mid  = a.clone().lerp(b, 0.5);
+  const gap  = Math.min(span * 0.28, 22);
+  const lStart = a.clone().addScaledVector(dir,               AL);
+  const lEnd   = b.clone().addScaledVector(dir.clone().negate(), AL);
+  if (span > gap * 2 + AL * 2) {
+    fatLine(parent, lStart, mid.clone().sub(dir.clone().multiplyScalar(gap)));
+    fatLine(parent, mid.clone().add(dir.clone().multiplyScalar(gap)), lEnd);
+  } else {
+    fatLine(parent, lStart, lEnd);
+  }
+
+  // Sprite label nudged outward from dim line midpoint
+  const labelPos = mid.clone().add(outVec.clone().normalize().multiplyScalar(5));
+  parent.add(makeDimLabel(label, labelPos));
 }
 
 /* ─────────────────────────────────────────────────────────────────────────
@@ -415,14 +536,13 @@ function csgSubtract(baseGeo, holeGeos) {
   return brush.geometry;
 }
 
-// Build a wall mesh with CSG holes; add to parent and collect into geoms array
-function makeWall(parent, mat, baseGeo, holeGeos, exportGeos) {
+// Build a wall mesh with CSG holes and add to parent (visual only)
+function makeWall(parent, mat, baseGeo, holeGeos) {
   const resultGeo = holeGeos.length ? csgSubtract(baseGeo, holeGeos) : baseGeo;
   resultGeo.computeVertexNormals();
   const mesh = new THREE.Mesh(resultGeo, mat);
   mesh.castShadow = mesh.receiveShadow = true;
   parent.add(mesh);
-  if (exportGeos) exportGeos.push(resultGeo.clone());
   return mesh;
 }
 
@@ -436,12 +556,12 @@ function applyTessMode(on) {
   if (wireGroup) { disposeGroup(wireGroup); wireGroup = null; }
 
   if (on) {
+    // Wireframe overlay on enclosure shell only (the 3D-printable solid)
     wireGroup = new THREE.Group();
     scene.add(wireGroup);
     const wireMat = new THREE.LineBasicMaterial({ color: 0x6abf69, linewidth: 1 });
-    [encGroup, compGroup, mountGroup].forEach(g => {
-      if (!g) return;
-      g.traverse(obj => {
+    if (encGroup) {
+      encGroup.traverse(obj => {
         if (!obj.isMesh) return;
         const wGeo = new THREE.WireframeGeometry(obj.geometry);
         const lines = new THREE.LineSegments(wGeo, wireMat.clone());
@@ -449,29 +569,49 @@ function applyTessMode(on) {
         lines.quaternion.copy(obj.getWorldQuaternion(new THREE.Quaternion()));
         wireGroup.add(lines);
       });
-    });
+    }
 
-    // Dim solid materials
-    [encGroup, compGroup, mountGroup].forEach(g => {
-      if (!g) return;
-      g.traverse(obj => {
+    // Dim only the enclosure shell materials
+    if (encGroup) {
+      encGroup.traverse(obj => {
         if (!obj.isMesh) return;
         const mats = Array.isArray(obj.material) ? obj.material : [obj.material];
         mats.forEach(m => { m.transparent = true; m.opacity = Math.min(m.opacity ?? 1, 0.18); m.needsUpdate = true; });
       });
-    });
+    }
   } else {
-    // Restore opacity
+    // Restore enclosure shell opacity only
     updateShellOpacity(parseFloat(document.getElementById('ctrl-opacity').value));
-    [compGroup, mountGroup].forEach(g => {
-      if (!g) return;
-      g.traverse(obj => {
-        if (!obj.isMesh) return;
-        const mats = Array.isArray(obj.material) ? obj.material : [obj.material];
-        mats.forEach(m => { m.transparent = false; m.opacity = 1; m.needsUpdate = true; });
-      });
-    });
   }
+}
+
+/* Toggle product-photo texture overlays on all PCB components */
+function applyTextureMode(show) {
+  showTextures = show;
+  if (!compGroup) return;
+  compGroup.traverse(obj => {
+    if (!obj.isMesh) return;
+    const mats = Array.isArray(obj.material) ? obj.material : [obj.material];
+    mats.forEach(mat => {
+      if (mat.userData.imgTex === undefined) return;
+      if (show) {
+        mat.map = mat.userData.imgTex;
+        mat.color.set(0xffffff);
+      } else {
+        mat.map = null;
+        mat.color.setHex(mat.userData.bgHex ?? 0x333333);
+      }
+      mat.needsUpdate = true;
+    });
+  });
+}
+
+/* Toggle PCB outline wireframe children on all component meshes */
+function applyPcbWireMode(show) {
+  if (!compGroup) return;
+  compGroup.traverse(obj => {
+    if (obj.userData.isPcbWire) obj.visible = show;
+  });
 }
 
 /* ─────────────────────────────────────────────────────────────────────────
@@ -606,10 +746,91 @@ const BRASS_MAT = () => new THREE.MeshStandardMaterial({ color: 0xb8922a, roughn
 function addStandoffs(parent, holes, baseY, height, postR) {
   holes.forEach(([dx, dz]) => {
     makeCyl(parent, postR, postR, height, dx, baseY + height/2, dz, BRASS_MAT());
-    // Screw head on top
-    makeCyl(parent, postR*1.8, postR*1.8, 0.8, dx, baseY + height + 0.4, dz, BRASS_MAT(), 12);
+    // Screw head flush with top of standoff (does not protrude into PCB)
+    makeCyl(parent, postR*1.8, postR*1.8, 0.8, dx, baseY + height - 0.4, dz, BRASS_MAT(), 12);
   });
 }
+
+/* ─────────────────────────────────────────────────────────────────────────
+   Component spec data — mounting holes + connector positions (mm, PCB-local)
+   Origin = geometric centre of PCB face. X=right, Y=up (or out of face), Z=down
+   ───────────────────────────────────────────────────────────────────────── */
+
+const EXIT = {
+  '+X': new THREE.Vector3( 1, 0, 0), '-X': new THREE.Vector3(-1, 0, 0),
+  '+Y': new THREE.Vector3( 0, 1, 0), '-Y': new THREE.Vector3( 0,-1, 0),
+  '+Z': new THREE.Vector3( 0, 0, 1), '-Z': new THREE.Vector3( 0, 0,-1),
+};
+
+const COMP_SPECS = {
+  pi_zero_2w: {
+    // PCB 65×30 mm; M2.5 holes 3.5 mm from each edge → ±29 mm (X), ±11.5 mm (Z)
+    mountHoles: [{x:-29,z:-11.5},{x:29,z:-11.5},{x:-29,z:11.5},{x:29,z:11.5}],
+    holeLabel: 'M2.5',
+    imgTransform: { rotate: 180, flipX: false },
+    connectors: [
+      {id:'usb_pwr', off:[-20.5, 0.8,-15], dir:'-Z', color:0xff4444, label:'5V PWR' },
+      {id:'usb_otg', off:[-12.0, 0.8,-15], dir:'-Z', color:0x4488ff, label:'USB OTG'},
+      {id:'hdmi',    off:[  -3.5, 0.8,-15], dir:'-Z', color:0x666666, label:'HDMI'   },
+      {id:'sd',      off:[ -23.5, 0.8, 15], dir:'+Z', color:0xcccccc, label:'SD'     },
+      {id:'csi',     off:[  32.5, 0,  -4.5], dir:'+X', color:0xffcc44, label:'CSI'   },
+      {id:'gpio',    off:[    0,  0.8, 13.5], dir:'+Z', color:0x44ff88, label:'GPIO'  },
+    ],
+  },
+  camera_v3_noir: {
+    // PCB 25×24 mm vertical; FPC exits bottom edge
+    // 4× M2 holes, 2 mm from each edge → X: ±10.5 mm, Y(z): ±10 mm from centre
+    mountHoles: [{x:-10.5,z:-10},{x:10.5,z:-10},{x:-10.5,z:10},{x:10.5,z:10}],
+    holeLabel: 'M2',
+    imgTransform: { rotate: 0, flipX: false },
+    connectors: [
+      {id:'fpc', off:[0,-12,0.8], dir:'-Y', color:0xffcc44, label:'FPC→Pi'},
+    ],
+  },
+  hc_sr501: {
+    // PCB 32×24 mm vertical; header exits top
+    mountHoles: [{x:-14,z:0},{x:14,z:0}],
+    holeLabel: 'M2',
+    imgTransform: { rotate: 0, flipX: false },
+    connectors: [
+      {id:'gpio3', off:[12,12,0.8], dir:'+Y', color:0x44ff88, label:'GPIO17'},
+    ],
+  },
+  max98357a: {
+    // Adafruit #3006: PCB 22.86×17.78 mm (0.9"×0.7"), 1.6 mm thick
+    // 2× M2.5 oval slots, 2 mm from each long (22.86 mm) edge → 18.86 mm C-C → ±9.43 mm
+    // I2S 5-pin header on one short edge (−Z); speaker spring terminals on other (+Z)
+    mountHoles: [{x:-9.43,z:0},{x:9.43,z:0}],
+    holeLabel: 'M2.5',
+    imgTransform: { rotate: 180, flipX: false },
+    connectors: [
+      {id:'i2s', off:[0, 0.8,-8.89], dir:'-Z', color:0x4488ff, label:'I2S'  },
+      {id:'spk', off:[0, 0.8, 8.89], dir:'+Z', color:0xaaaaaa, label:'SPK±' },
+    ],
+  },
+  tp4056: {
+    // PCB 28×17 mm; USB-C on left edge, battery pads + output pads on top
+    mountHoles: [],
+    holeLabel: null,
+    imgTransform: { rotate: 180, flipX: false },
+    connectors: [
+      {id:'usbc', off:[-14, 0,    0], dir:'-X', color:0x888888, label:'USB-C In'},
+      {id:'bat',  off:[  5, 0.8,  6], dir:'+Z', color:0xffaa00, label:'BAT±'   },
+      {id:'out',  off:[ -5, 0.8,  6], dir:'+Z', color:0xff4444, label:'5V Out' },
+    ],
+  },
+};
+
+/* Wire routes between named connector endpoints.
+   'to: null' means a stub wire that hangs free (e.g. to battery / speaker). */
+const WIRE_ROUTES = [
+  {from:'pi_zero_2w:csi',  to:'camera_v3_noir:fpc', color:0xffcc44, radius:1.2, label:'CSI Ribbon' },
+  {from:'pi_zero_2w:gpio', to:'hc_sr501:gpio3',      color:0x44ff88, radius:0.35,label:'PIR GPIO17'},
+  {from:'pi_zero_2w:gpio', to:'max98357a:i2s',        color:0x4488ff, radius:0.35,label:'I2S Bus'  },
+  {from:'tp4056:out',      to:'pi_zero_2w:usb_pwr',  color:0xff4444, radius:0.5, label:'5V Rail'   },
+  {from:'max98357a:spk',   to:null,                   color:0xaaaaaa, radius:0.5, label:'Speaker'  },
+  {from:'tp4056:bat',      to:null,                   color:0xffaa00, radius:0.6, label:'Battery'  },
+];
 
 /* ─────────────────────────────────────────────────────────────────────────
    Canvas texture generators for component box faces
@@ -617,9 +838,9 @@ function addStandoffs(parent, holes, baseY, height, postR) {
 
 /* Plain text label — used for thin side edges */
 function makeTextTex(lines, faceW, faceH, bgColor) {
-  const scale = 6;
-  const cw = Math.max(64,  Math.min(1024, Math.round(faceW * scale)));
-  const ch = Math.max(64,  Math.min(1024, Math.round(faceH * scale)));
+  const scale = 16;
+  const cw = Math.max(64,  Math.min(2048, Math.round(faceW * scale)));
+  const ch = Math.max(64,  Math.min(2048, Math.round(faceH * scale)));
   const c  = document.createElement('canvas');
   c.width  = cw;
   c.height = ch;
@@ -646,6 +867,7 @@ function makeTextTex(lines, faceW, faceH, bgColor) {
 
   const tex = new THREE.CanvasTexture(c);
   tex.colorSpace = THREE.SRGBColorSpace;
+  tex.anisotropy = renderer.capabilities.getMaxAnisotropy();
   return tex;
 }
 
@@ -654,9 +876,9 @@ function makeTextTex(lines, faceW, faceH, bgColor) {
  * Draws a PCB board look: green substrate, gold pad row, white silk labels.
  * Completely avoids external images (which are photographed at odd angles).
  */
-function makePcbTopTex(w, d, bgColor, name, dims, specs, accentColor) {
-  const cw = Math.max(256, Math.min(1024, Math.round(w * 8)));
-  const ch = Math.max(256, Math.min(1024, Math.round(d * 8)));
+function makePcbTopTex(w, d, bgColor, name, dims, specs, accentColor, mountHoles=[], artFaceRotate=0) {
+  const cw = Math.max(256, Math.min(2048, Math.round(w * 16)));
+  const ch = Math.max(256, Math.min(2048, Math.round(d * 16)));
   const c  = document.createElement('canvas');
   c.width  = cw;
   c.height = ch;
@@ -718,20 +940,38 @@ function makePcbTopTex(w, d, bgColor, name, dims, specs, accentColor) {
     ctx.fillText(line, textX, (i + 1.5) * rowH, cw * 0.42);
   });
 
-  // Corner mounting hole indicators (small circles)
+  // Mounting hole indicators — drawn at exact PCB-local positions when available,
+  // else fall back to generic corner placeholders.
   const holeR = Math.min(cw, ch) * 0.04;
-  const margin = holeR * 1.8;
-  [[margin, margin],[cw-margin, margin],[margin, ch-margin],[cw-margin, ch-margin]].forEach(([hx, hy]) => {
+  const drawHole = (hx, hy) => {
     ctx.beginPath();
-    ctx.arc(hx, hy, holeR, 0, Math.PI*2);
-    ctx.strokeStyle = 'rgba(255,255,255,0.6)';
-    ctx.lineWidth = 2;
+    ctx.arc(hx, hy, holeR, 0, Math.PI * 2);
+    ctx.strokeStyle = 'rgba(255,255,255,0.7)';
+    ctx.lineWidth = Math.max(2, holeR * 0.18);
     ctx.stroke();
     ctx.beginPath();
-    ctx.arc(hx, hy, holeR * 0.4, 0, Math.PI*2);
+    ctx.arc(hx, hy, holeR * 0.4, 0, Math.PI * 2);
     ctx.fillStyle = pcbHex;
     ctx.fill();
-  });
+    // crosshair
+    const cs = holeR * 0.7;
+    ctx.strokeStyle = 'rgba(255,255,255,0.35)';
+    ctx.lineWidth = 1;
+    ctx.beginPath(); ctx.moveTo(hx - cs, hy); ctx.lineTo(hx + cs, hy); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(hx, hy - cs); ctx.lineTo(hx, hy + cs); ctx.stroke();
+  };
+  if (mountHoles.length > 0) {
+    mountHoles.forEach(hole => {
+      // hole.x and hole.z are mm offsets from PCB centre; face coords: x=right, z=down
+      let hx = (hole.x / w + 0.5) * cw;
+      let hy = (1 - (hole.z / d + 0.5)) * ch;
+      if (artFaceRotate === 180) { hx = cw - hx; hy = ch - hy; }
+      drawHole(hx, hy);
+    });
+  } else {
+    const margin = holeR * 1.8;
+    [[margin,margin],[cw-margin,margin],[margin,ch-margin],[cw-margin,ch-margin]].forEach(([hx,hy]) => drawHole(hx, hy));
+  }
 
   const tex = new THREE.CanvasTexture(c);
   tex.colorSpace = THREE.SRGBColorSpace;
@@ -739,6 +979,7 @@ function makePcbTopTex(w, d, bgColor, name, dims, specs, accentColor) {
   // so canvas left→right = world -X→+X, canvas top→bottom = world -Z→+Z
   // No extra flip needed.
   tex.flipY = true;
+  tex.anisotropy = renderer.capabilities.getMaxAnisotropy();
   return tex;
 }
 
@@ -748,8 +989,11 @@ function makePcbTopTex(w, d, bgColor, name, dims, specs, accentColor) {
  * Side faces: text labels.
  * imgURL: product image URL (optional, loaded async — shown on top of PCB art).
  */
-function makeCompBox(parent, w, h, d, x, y, z, bgColor, name, dims, specs, imgURL='') {
+function makeCompBox(parent, w, h, d, x, y, z, bgColor, name, dims, specs, imgURL='', compId='') {
   const accent = 'rgba(180,220,160,0.6)';
+  const compSpec   = compId ? COMP_SPECS[compId] : null;
+  const imgXform   = compSpec ? compSpec.imgTransform : { rotate: 0, flipX: false };
+  const mountHoles = compSpec ? compSpec.mountHoles   : [];
 
   const faceDims = [
     [d, h], [d, h],  // 0,1: ±X
@@ -763,7 +1007,7 @@ function makeCompBox(parent, w, h, d, x, y, z, bgColor, name, dims, specs, imgUR
   const mats = faceDims.map(([fw, fh], i) => {
     let tex;
     if (i === artFace) {
-      tex = makePcbTopTex(fw, fh, bgColor, name, dims, specs, accent);
+      tex = makePcbTopTex(fw, fh, bgColor, name, dims, specs, accent, mountHoles, imgXform.rotate);
     } else if (i === (artFace % 2 === 0 ? artFace + 1 : artFace - 1)) {
       tex = makeTextTex([''], fw, fh, bgColor);
     } else {
@@ -778,45 +1022,362 @@ function makeCompBox(parent, w, h, d, x, y, z, bgColor, name, dims, specs, imgUR
   mesh.castShadow = mesh.receiveShadow = true;
   parent.add(mesh);
 
-  // Async: replace art face with product photo (shows device photo on top face)
+  // Async: draw product photo onto a canvas sized to the face, then use as texture.
+  // This guarantees correct aspect ratio without UV repeat/offset tricks.
+  // Applied to artFace AND the opposite face (artFace^1) for visibility from both sides.
   if (imgURL) {
+    const oppFace = artFace ^ 1;
+    const [faceW, faceH] = faceDims[artFace];
     const loader = new THREE.TextureLoader();
     loader.crossOrigin = 'anonymous';
-    loader.load(imgURL, tex => {
-      tex.colorSpace = THREE.SRGBColorSpace;
-      tex.flipY = (artFace === 2 || artFace === 3);
-      mats[artFace].map = tex;
-      mats[artFace].needsUpdate = true;
+    loader.load(imgURL, imgTex => {
+      const img = imgTex.image;
+      const imgAspect  = img.naturalWidth / img.naturalHeight;
+      const faceAspect = faceW / faceH;
+
+      // Canvas sized proportionally to the face (20 px/mm for hi-res)
+      const PX = 20;
+      const cw = Math.round(faceW * PX);
+      const ch = Math.round(faceH * PX);
+      const maxAniso = renderer.capabilities.getMaxAnisotropy();
+
+      let dw, dh, dx, dy;
+      if (imgAspect > faceAspect) {
+        dw = cw;        dh = cw / imgAspect;
+        dx = 0;         dy = (ch - dh) / 2;
+      } else {
+        dh = ch;        dw = ch * imgAspect;
+        dx = (cw - dw) / 2; dy = 0;
+      }
+
+      // Apply per-component image transform (rotate180 or flipX) then draw.
+      // For the opposite (underside) face, additionally mirror horizontally so
+      // the image reads correctly when viewed through the board.
+      function makeImgTex(transform, extraFlipX) {
+        const c = document.createElement('canvas');
+        c.width = cw; c.height = ch;
+        const ctx = c.getContext('2d');
+        ctx.fillStyle = '#' + bgColor.toString(16).padStart(6, '0');
+        ctx.fillRect(0, 0, cw, ch);
+        ctx.save();
+        if (transform.rotate === 180) {
+          ctx.translate(cw, ch);
+          ctx.rotate(Math.PI);
+        }
+        if (transform.flipX || extraFlipX) {
+          // If rotate was applied above, the translation origin shifted; flip in
+          // the already-transformed space by undoing the rotate-translate offset.
+          if (transform.rotate === 180) {
+            ctx.translate(-cw, 0); ctx.scale(-1, 1); ctx.translate(cw, 0);
+          } else {
+            ctx.translate(cw, 0); ctx.scale(-1, 1);
+          }
+        }
+        ctx.drawImage(img, dx, dy, dw, dh);
+        ctx.restore();
+        const tex = new THREE.CanvasTexture(c);
+        tex.colorSpace = THREE.SRGBColorSpace;
+        tex.anisotropy = maxAniso;
+        return tex;
+      }
+
+      const artImgTex = makeImgTex(imgXform, false);
+      const oppImgTex = makeImgTex(imgXform, true);
+      imgTex.dispose();
+
+      // Store photo tex and plain bgColor so texture toggle can swap them.
+      // pcbTex (canvas PCB art) remains the loading placeholder only.
+      mats[artFace].userData.imgTex = artImgTex;
+      mats[artFace].userData.bgHex  = bgColor;
+      mats[oppFace].userData.imgTex = oppImgTex;
+      mats[oppFace].userData.bgHex  = bgColor;
+
+      if (showTextures) {
+        mats[artFace].map = artImgTex; mats[artFace].color.set(0xffffff); mats[artFace].needsUpdate = true;
+        mats[oppFace].map = oppImgTex; mats[oppFace].color.set(0xffffff); mats[oppFace].needsUpdate = true;
+      } else {
+        mats[artFace].map = null; mats[artFace].color.setHex(bgColor); mats[artFace].needsUpdate = true;
+        mats[oppFace].map = null; mats[oppFace].color.setHex(bgColor); mats[oppFace].needsUpdate = true;
+      }
     }, undefined, () => {});
+  }
+
+  // ── PCB outline wireframe + mounting-hole rings + in-plane dims ──────────
+  {
+    const wfMat  = new THREE.LineBasicMaterial({ color: 0x00ff99, depthTest: true, transparent: true, opacity: 0.85 });
+    const holMat = new THREE.LineBasicMaterial({ color: 0xffcc00, depthTest: true, transparent: true, opacity: 0.95 });
+
+    // Box edge outline — scaled 0.5% larger than the mesh so edges don't Z-fight
+    // with the box faces (they sit just outside the geometry).
+    const wf = new THREE.LineSegments(new THREE.EdgesGeometry(new THREE.BoxGeometry(w, h, d)), wfMat);
+    wf.scale.setScalar(1.005);
+    wf.userData.isPcbWire = true;
+    wf.visible = false;   // hidden by default; toggled by "Show PCB outlines"
+    mesh.add(wf);
+
+    // Mounting-hole rings on the art face (in the face's local 2D plane)
+    const HOLE_R = 1.15;  // visual drill radius (mm)
+    const N = 24;
+    mountHoles.forEach(hole => {
+      // Local-space centre of hole on the art face surface (offset 0.05 mm to avoid z-fighting)
+      let lx, ly, lz, u1x, u1y, u1z, u2x, u2y, u2z;
+      if (artFace === 2) {          // +Y face — circle in XZ plane
+        lx = hole.x; ly = h / 2 + 0.05; lz = hole.z;
+        u1x = 1; u1y = 0; u1z = 0;
+        u2x = 0; u2y = 0; u2z = 1;
+      } else if (artFace === 4) {  // +Z face — circle in XY plane
+        lx = hole.x; ly = hole.z; lz = d / 2 + 0.05;
+        u1x = 1; u1y = 0; u1z = 0;
+        u2x = 0; u2y = 1; u2z = 0;
+      } else {                     // +X face — circle in YZ plane
+        lx = w / 2 + 0.05; ly = hole.z; lz = hole.x;
+        u1x = 0; u1y = 1; u1z = 0;
+        u2x = 0; u2y = 0; u2z = 1;
+      }
+
+      // Outer ring
+      const ringPts = [];
+      for (let i = 0; i <= N; i++) {
+        const a = i / N * Math.PI * 2;
+        const c = Math.cos(a), s = Math.sin(a);
+        ringPts.push(new THREE.Vector3(
+          lx + HOLE_R * (u1x * c + u2x * s),
+          ly + HOLE_R * (u1y * c + u2y * s),
+          lz + HOLE_R * (u1z * c + u2z * s)));
+      }
+      const ring = new THREE.Line(new THREE.BufferGeometry().setFromPoints(ringPts), holMat.clone());
+      ring.userData.isPcbWire = true;
+      ring.visible = false;
+      mesh.add(ring);
+
+      // Crosshair
+      const CS = HOLE_R * 0.65;
+      for (const [da, db] of [
+        [new THREE.Vector3(lx - CS*u1x, ly - CS*u1y, lz - CS*u1z),
+         new THREE.Vector3(lx + CS*u1x, ly + CS*u1y, lz + CS*u1z)],
+        [new THREE.Vector3(lx - CS*u2x, ly - CS*u2y, lz - CS*u2z),
+         new THREE.Vector3(lx + CS*u2x, ly + CS*u2y, lz + CS*u2z)],
+      ]) {
+        const ch = new THREE.Line(new THREE.BufferGeometry().setFromPoints([da, db]), holMat.clone());
+        ch.userData.isPcbWire = true;
+        ch.visible = false;
+        mesh.add(ch);
+      }
+    });
+
+    // In-plane PCB dimensions — coplanar with wireframe, same isPcbWire tag
+    if (compId) addPcbPlaneDims(mesh, compId, 0, 0, 0, w, h, d);
   }
 
   return mesh;
 }
 
-/* Cutout ring indicator on a wall face */
-function makeCutoutRing(parent, outerR, color, x, y, z, rotX, rotY) {
-  const mat = new THREE.MeshBasicMaterial({ color, side: THREE.DoubleSide });
-  const ring = new THREE.Mesh(new THREE.RingGeometry(outerR * 0.6, outerR, 48), mat);
-  ring.position.set(x, y, z);
-  if (rotX !== undefined) ring.rotation.x = rotX;
-  if (rotY !== undefined) ring.rotation.y = rotY;
-  parent.add(ring);
+/* ─────────────────────────────────────────────────────────────────────────
+   Connector markers + wire routing helpers
+   ───────────────────────────────────────────────────────────────────────── */
 
-  const discMat = new THREE.MeshBasicMaterial({ color, transparent: true, opacity: 0.12, side: THREE.DoubleSide });
-  const disc = new THREE.Mesh(new THREE.CircleGeometry(outerR, 48), discMat);
-  disc.position.set(x, y, z);
-  if (rotX !== undefined) disc.rotation.x = rotX;
-  if (rotY !== undefined) disc.rotation.y = rotY;
-  parent.add(disc);
+/* Small sphere + directional stem at each connector exit point */
+function addConnectorMarker(parent, pos, dir, color) {
+  const SPHERE_R = 1.1, STEM = 4;
+  const mat = new THREE.MeshStandardMaterial({
+    color, emissive: color, emissiveIntensity: 0.55, roughness: 0.3,
+  });
+  const sphere = new THREE.Mesh(new THREE.SphereGeometry(SPHERE_R, 8, 6), mat);
+  sphere.position.copy(pos);
+  parent.add(sphere);
+  const stem = new THREE.Mesh(new THREE.CylinderGeometry(0.35, 0.35, STEM, 6), mat);
+  stem.position.copy(pos).addScaledVector(dir, STEM / 2);
+  stem.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), dir);
+  parent.add(stem);
 }
 
-/* USB-C slot rectangle indicator */
-function makeMicroPort(parent, slotW, slotH, x, y, z, rotY) {
-  const mat = new THREE.MeshBasicMaterial({ color: 0x00cc88, side: THREE.DoubleSide });
-  const mesh = new THREE.Mesh(new THREE.PlaneGeometry(slotW, slotH), mat);
-  mesh.position.set(x, y, z);
-  if (rotY !== undefined) mesh.rotation.y = rotY;
+/* Catmull-Rom tube wire with natural arc and slack */
+function buildWire(parent, p0, dir0, p1, dir1, color, radius) {
+  const SLACK = 12;
+  const a   = p0.clone().addScaledVector(dir0, SLACK);
+  const b   = p1.clone().addScaledVector(dir1, SLACK);
+  const mid = new THREE.Vector3().lerpVectors(a, b, 0.5);
+  mid.y += Math.max(6, p0.distanceTo(p1) * 0.12);
+  const segs = Math.max(24, Math.round(p0.distanceTo(p1)));
+  const geo  = new THREE.TubeGeometry(
+    new THREE.CatmullRomCurve3([p0, a, mid, b, p1], false, 'catmullrom', 0.5),
+    segs, radius, 8, false
+  );
+  const mesh = new THREE.Mesh(geo, new THREE.MeshStandardMaterial({ color, roughness: 0.75 }));
+  mesh.castShadow = true;
   parent.add(mesh);
+}
+
+/* Transform component-local connector offsets to world space and register them */
+function placeConnectors(compId, cx, cy, cz, parent, registry) {
+  const spec = COMP_SPECS[compId];
+  if (!spec) return;
+  spec.connectors.forEach(conn => {
+    const [ox, oy, oz] = conn.off;
+    const pos = new THREE.Vector3(cx + ox, cy + oy, cz + oz);
+    const dir = EXIT[conn.dir].clone();
+    registry.set(`${compId}:${conn.id}`, { pos, dir, color: conn.color });
+    addConnectorMarker(parent, pos, dir, conn.color);
+  });
+}
+
+/* ── In-plane PCB dimension annotations ──────────────────────────────────
+ * All annotations drawn INSIDE the component wireframe face — nothing
+ * extends outside the board boundary.
+ *
+ * Layout (all in face-plane local coords, origin = face centre):
+ *   • "W × H mm" size label near the top-inside edge
+ *   • Horizontal ruler line directly between leftmost/rightmost holes
+ *     on the top hole row, label just inside the line
+ *   • Vertical ruler line on the left hole column, label to its right
+ *   • Hole-size label (M2 / M2.5) near top-left hole
+ *
+ * Ruler style: solid line + small perpendicular tick at each end.
+ * No arrowheads, no external extension lines.
+ */
+function addPcbPlaneDims(parent, compId, cx, cy, cz, w, h, d) {
+  const spec = COMP_SPECS[compId];
+  if (!spec) return;
+
+  // Same artFace selection as makeCompBox
+  const faceDims = [[d,h],[d,h],[w,d],[w,d],[w,h],[w,h]];
+  const areas    = faceDims.map(([fw,fh]) => fw*fh);
+  const artFace  = areas.indexOf(Math.max(...areas));
+
+  const NOFF = 0.4;   // normal offset above surface
+  let faceW, faceH, fc, uVec, vVec, nVec;
+  if (artFace === 2) {
+    faceW = w;  faceH = d;
+    fc    = new THREE.Vector3(cx, cy + h/2 + NOFF, cz);
+    uVec  = new THREE.Vector3(1, 0, 0);
+    vVec  = new THREE.Vector3(0, 0, 1);
+    nVec  = new THREE.Vector3(0, 1, 0);
+  } else if (artFace === 4) {
+    faceW = w;  faceH = h;
+    fc    = new THREE.Vector3(cx, cy, cz + d/2 + NOFF);
+    uVec  = new THREE.Vector3(1, 0, 0);
+    vVec  = new THREE.Vector3(0, 1, 0);
+    nVec  = new THREE.Vector3(0, 0, 1);
+  } else {
+    faceW = h;  faceH = d;
+    fc    = new THREE.Vector3(cx + w/2 + NOFF, cy, cz);
+    uVec  = new THREE.Vector3(0, 1, 0);
+    vVec  = new THREE.Vector3(0, 0, 1);
+    nVec  = new THREE.Vector3(1, 0, 0);
+  }
+  // For artFace=2: makeBasis((1,0,0),(0,0,1),(0,1,0)) has determinant −1 (a reflection).
+  // setFromRotationMatrix then returns identity → labels stay vertical facing the camera.
+  // Fix: use Rx(−90°) which rotates PlaneGeometry (normal +Z) to lie flat (normal +Y).
+  // artFace=4 and else already give det=+1 so makeBasis works correctly for those.
+  let labelQuat;
+  if (artFace === 2) {
+    labelQuat = new THREE.Quaternion().setFromEuler(new THREE.Euler(-Math.PI / 2, 0, 0));
+  } else {
+    labelQuat = new THREE.Quaternion().setFromRotationMatrix(new THREE.Matrix4().makeBasis(uVec, vVec, nVec));
+  }
+
+  function fp(u, v) {
+    return new THREE.Vector3(
+      fc.x + uVec.x*u + vVec.x*v,
+      fc.y + uVec.y*u + vVec.y*v,
+      fc.z + uVec.z*u + vVec.z*v
+    );
+  }
+
+  function wire(obj) {
+    obj.userData.isPcbWire = true;
+    obj.visible = false;
+    parent.add(obj);
+    return obj;
+  }
+
+  function lf(u1, v1, u2, v2) {
+    const geo = new LineGeometry();
+    geo.setPositions([fp(u1,v1).x,fp(u1,v1).y,fp(u1,v1).z,
+                      fp(u2,v2).x,fp(u2,v2).y,fp(u2,v2).z]);
+    const ln = new Line2(geo, PCB_LINE_MAT);
+    ln.computeLineDistances();
+    wire(ln);
+  }
+
+  const PX_PER_MM = 10;
+  function flatLabel(text, u, v) {
+    const c   = document.createElement('canvas');
+    const ctx = c.getContext('2d');
+    const fs  = 22, pad = 4;
+    ctx.font  = `bold ${fs}px monospace`;
+    const tw  = Math.ceil(ctx.measureText(text).width);
+    c.width   = tw + pad * 2;
+    c.height  = fs + pad * 2;
+    ctx.font  = `bold ${fs}px monospace`;
+    ctx.fillStyle    = '#b8d4ff';
+    ctx.textAlign    = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(text, c.width / 2, c.height / 2);
+    const tex = new THREE.CanvasTexture(c);
+    tex.colorSpace = THREE.SRGBColorSpace;
+    const mat = new THREE.MeshBasicMaterial({
+      map: tex, transparent: true, depthTest: true,
+      side: THREE.FrontSide, alphaTest: 0.01,
+    });
+    const planeW = c.width  / PX_PER_MM;
+    const planeH = c.height / PX_PER_MM;
+    const mesh = new THREE.Mesh(new THREE.PlaneGeometry(planeW, planeH), mat);
+    mesh.quaternion.copy(labelQuat);
+    mesh.position.copy(fp(u, v));
+    mesh.renderOrder = 1;
+    return wire(mesh);
+  }
+
+  const TK = 1.4;   // half-length of end tick marks
+  const PAD = 2.5;  // label offset from ruler line
+
+  // Horizontal ruler: line at v, from u1 to u2, ticks at each end
+  function hRuler(u1, u2, v, text) {
+    lf(u1, v, u2, v);
+    lf(u1, v - TK, u1, v + TK);
+    lf(u2, v - TK, u2, v + TK);
+    flatLabel(text, (u1 + u2) / 2, v - PAD);
+  }
+
+  // Vertical ruler: line at u, from v1 to v2, ticks at each end
+  function vRuler(v1, v2, u, text) {
+    lf(u, v1, u, v2);
+    lf(u - TK, v1, u + TK, v1);
+    lf(u - TK, v2, u + TK, v2);
+    flatLabel(text, u + PAD, (v1 + v2) / 2);
+  }
+
+  // ── Board W×H label — top-inside, 3 mm below top edge ───────────────────
+  flatLabel(`${faceW.toFixed(1)} × ${faceH.toFixed(1)} mm`, 0, faceH/2 - 3);
+
+  // ── Mounting hole rulers ─────────────────────────────────────────────────
+  const holes = spec.mountHoles;
+  if (!holes || holes.length === 0) return;
+
+  const hUs = holes.map(h => h.x);
+  const hVs = holes.map(h => h.z);
+  const uMin = Math.min(...hUs), uMax = Math.max(...hUs);
+  const vMin = Math.min(...hVs), vMax = Math.max(...hVs);
+  const uSpan = uMax - uMin, vSpan = vMax - vMin;
+
+  // Horizontal C-C: ruler on the topmost hole row
+  if (uSpan > 1) {
+    hRuler(uMin, uMax, vMax, `${uSpan.toFixed(1)} mm C-C`);
+  }
+
+  // Vertical C-C: ruler on the leftmost hole column
+  if (vSpan > 1) {
+    vRuler(vMin, vMax, uMin, `${vSpan.toFixed(1)} mm C-C`);
+  }
+
+  // Hole-size label near top-left hole
+  const holeLabel = spec.holeLabel;
+  if (holeLabel) {
+    const topLeft = holes.reduce((b, h) =>
+      (h.z > b.z || (h.z === b.z && h.x < b.x)) ? h : b, holes[0]);
+    flatLabel(holeLabel, topLeft.x + 2.5, topLeft.z + 2.5);
+  }
 }
 
 /* ── Read controls ── */
@@ -828,9 +1389,8 @@ function getParams() {
     wallT:          parseFloat(document.getElementById('ctrl-wall').value),
     lidGap:         parseFloat(document.getElementById('ctrl-lid').value),
     shellOpacity:   parseFloat(document.getElementById('ctrl-opacity').value) / 100,
-    showComponents: document.getElementById('ctrl-components').checked,
     showMounts:     document.getElementById('ctrl-mounts').checked,
-    showCutouts:    document.getElementById('ctrl-cutouts').checked,
+    showDims:       document.getElementById('ctrl-dims').checked,
   };
 }
 
@@ -857,10 +1417,11 @@ function updateEnclosure() {
   disposeGroup(encGroup);
   disposeGroup(compGroup);
   disposeGroup(mountGroup);
-  disposeGroup(cutoutGroup);
+  disposeGroup(dimGroup);
   disposeGroup(wireGroup);
   wireGroup = null;
   exportGeometry = null;
+  const connReg = new Map(); // connector world positions: 'compId:connId' → {pos, dir, color}
   document.getElementById('btn-export-stl').disabled = true;
   document.getElementById('btn-export-3mf').disabled = true;
   document.getElementById('export-status').textContent = 'Building geometry…';
@@ -876,7 +1437,9 @@ function updateEnclosure() {
     color: 0x2a3a2a, roughness: 0.75, metalness: 0.08,
     transparent: p.shellOpacity < 1.0,
     opacity:     p.shellOpacity,
-    depthWrite:  p.shellOpacity > 0.05,
+    // Disable depth writes when the shell is transparent so that PCB wireframe
+    // annotations inside the enclosure aren't clipped by the invisible shell geometry.
+    depthWrite:  p.shellOpacity >= 1.0,
     side: THREE.DoubleSide,
   });
 
@@ -889,14 +1452,11 @@ function updateEnclosure() {
   // Lid — raised above box by lidGap (no holes, built immediately)
   makeBox(encGroup, W, t, D, 0, H + p.lidGap + t/2, 0, shellMat());
 
-  // Collect export geometries (filled after CSG below)
-  const exportGeos = [];
 
   /* ════════════════════════════════════════════════
      COMPONENTS
      ════════════════════════════════════════════════ */
   compGroup = new THREE.Group();
-  compGroup.visible = p.showComponents;
   scene.add(compGroup);
 
   mountGroup = new THREE.Group();
@@ -925,17 +1485,15 @@ function updateEnclosure() {
   const PI_W = 65, PI_D = 30, PI_H = 1.6;
   const PI_STANDOFF = 5;    // standoff height (mm)
   const PI_HOLE_R   = 1.25; // M2.5 post radius
-  const piX = -5, piZ = -8; // world position: front half of enclosure, clear of battery
+  const piX = -5, piZ = -20; // world position: front half of enclosure, clear of battery
   const piPcbY = floorY + PI_STANDOFF + PI_H / 2;
-  const piHoles = [
-    [piX - 29, piZ - 11.5], [piX + 29, piZ - 11.5],
-    [piX - 29, piZ + 11.5], [piX + 29, piZ + 11.5],
-  ];
+  const piHoles = COMP_SPECS.pi_zero_2w.mountHoles.map(h => [piX + h.x, piZ + h.z]);
   addStandoffs(mountGroup, piHoles, floorY, PI_STANDOFF, PI_HOLE_R);
   makeCompBox(compGroup, PI_W, PI_H, PI_D, piX, piPcbY, piZ, 0x1a3a1a,
     'Pi Zero 2W', '65×30mm',
     ['ARM A53 1GHz', '512MB RAM', 'M2.5 × 4'],
-    '/static/components/pi_zero_2w.jpg');
+    '/static/components/pi_zero_2w.jpg', 'pi_zero_2w');
+  placeConnectors('pi_zero_2w', piX, piPcbY, piZ, compGroup, connReg);
 
   /* ───────────────────────────────────────────────────────────────────
    * Pi Camera Module v3 NoIR
@@ -943,14 +1501,13 @@ function updateEnclosure() {
    * Orientation (landscape): 25 mm horizontal (X), 24 mm vertical (Y)
    * Lens centre at 19.61 mm from bottom edge (FPC side) along 24 mm axis
    *   → PCB centre is at Y = lensY - (19.61 - 24/2) = lensY - 7.61
-   * 2× M2 holes, 2.0 mm from each long (24 mm) edge on the 25 mm axis:
-   *   C-C = 25 - 2×2.0 = 21 mm  →  ±10.5 mm from PCB horizontal centre
-   *   Vertically centred on PCB (halfway up the 24 mm)
+   * 4× M2 holes, 2.0 mm from each edge:
+   *   X: ±(25/2 - 2) = ±10.5 mm  →  21.0 mm C-C horizontal
+   *   Y: ±(24/2 - 2) = ±10.0 mm  →  20.0 mm C-C vertical
    * Lens barrel: 12 mm dia, protrudes 10.5 mm through/past front wall
    */
   const CAM_W = 25, CAM_H_PCB = 24, CAM_PCB_T = 1.6;
   const CAM_LENS_FROM_BOTTOM = 19.61;  // lens Y from PCB bottom edge
-  const CAM_HOLE_HALF = 10.5;          // ±10.5 mm from PCB horizontal centre
   const CAM_STANDOFF  = 3;             // boss height on front wall interior
   const CAM_LENS_R    = 6;             // ~12 mm dia IMX708 lens
   const CAM_LENS_PROTRUDE = 10.5;      // how far lens sticks out past front wall
@@ -965,8 +1522,9 @@ function updateEnclosure() {
   // Camera PCB — vertical; largest face = +Z/-Z (25×24mm) which gets PCB art + product photo
   makeCompBox(compGroup, CAM_W, CAM_H_PCB, CAM_PCB_T, camX, camPcbCentreY, camPcbZ, 0x1a2a3a,
     'Cam v3 NoIR', '25×24mm',
-    ['IMX708 12MP', 'No IR filter', 'M2 × 2'],
-    '/static/components/camera_v3_noir.jpg');
+    ['IMX708 12MP', 'No IR filter', 'M2 × 4'],
+    '/static/components/camera_v3_noir.jpg', 'camera_v3_noir');
+  placeConnectors('camera_v3_noir', camX, camPcbCentreY, camPcbZ, compGroup, connReg);
 
   // Lens barrel — centred on camX, camLensY, protruding outside
   const lensMat = new THREE.MeshStandardMaterial({ color: 0x111111, roughness: 0.3, metalness: 0.7 });
@@ -975,12 +1533,12 @@ function updateEnclosure() {
   lensBarrel.position.set(camX, camLensY, -hD - (CAM_LENS_PROTRUDE - t) / 2);
   compGroup.add(lensBarrel);
 
-  // M2 boss inserts on front wall (2×, horizontal, ±10.5 mm from camX)
+  // M2 boss inserts on front wall (4×, one at each corner of PCB)
   // Boss cylinders run through front wall thickness (depth = t + 2 for visibility)
-  [camX - CAM_HOLE_HALF, camX + CAM_HOLE_HALF].forEach(hx => {
+  COMP_SPECS.camera_v3_noir.mountHoles.forEach(h => {
     const hm = new THREE.Mesh(new THREE.CylinderGeometry(1.2, 1.2, t + 2, 12), BRASS_MAT());
     hm.rotation.x = Math.PI / 2;
-    hm.position.set(hx, camPcbCentreY, -hD);
+    hm.position.set(camX + h.x, camPcbCentreY + h.z, -hD);
     mountGroup.add(hm);
   });
 
@@ -1015,7 +1573,8 @@ function updateEnclosure() {
   makeCompBox(compGroup, PIR_W, PIR_H_PCB, PIR_PCB_T, pirX, pirPcbY, pirPcbZ, 0x3a2a1a,
     'HC-SR501 PIR', '32×24mm',
     ['PIR Motion', 'GPIO 17', 'M2 × 2'],
-    '/static/components/hc_sr501_pir.jpg');
+    '/static/components/hc_sr501_pir.jpg', 'hc_sr501');
+  placeConnectors('hc_sr501', pirX, pirPcbY, pirPcbZ, compGroup, connReg);
 
   // Fresnel dome: hemisphere pointing outward (-Z direction) through front wall
   // SphereGeometry creates dome with pole at +Y, base at Y=0.
@@ -1033,29 +1592,26 @@ function updateEnclosure() {
   compGroup.add(domeM);
 
   /* ───────────────────────────────────────────────────────────────────
-   * MAX98357A I2S Amplifier
-   * PCB: 19.4 × 17.8 mm, 1.6 mm thick
-   * 2× M2.5 holes, 14.3 mm C-C along the 19.4 mm (long) axis
-   *   → ±7.15 mm from PCB centre on X axis
+   * MAX98357A I2S Amplifier — Adafruit breakout #3006
+   * PCB: 22.86 × 17.78 mm (0.9" × 0.7"), 1.6 mm thick
+   * 2× M2.5 oval slots, 18.86 mm C-C along the 22.86 mm (long) axis → ±9.43 mm
    * Placed against left wall, mid-depth
    */
-  const AMP_W = 19.4, AMP_D = 17.8, AMP_H = 1.6;
+  const AMP_W = 22.86, AMP_D = 17.78, AMP_H = 1.6;
   const AMP_STANDOFF = 5;
   const AMP_HOLE_R   = 1.25; // M2.5
 
   const ampX = -(hW - t - AMP_W / 2 - 3);
-  const ampZ = -5;
+  const ampZ = -12;  // was -5; moved toward front to clear battery (bat front edge ≈ +2 mm)
   const ampPcbY = floorY + AMP_STANDOFF + AMP_H / 2;
 
-  const ampHoles = [
-    [ampX - 7.15, ampZ],
-    [ampX + 7.15, ampZ],
-  ];
+  const ampHoles = COMP_SPECS.max98357a.mountHoles.map(h => [ampX + h.x, ampZ + h.z]);
   addStandoffs(mountGroup, ampHoles, floorY, AMP_STANDOFF, AMP_HOLE_R);
   makeCompBox(compGroup, AMP_W, AMP_H, AMP_D, ampX, ampPcbY, ampZ, 0x2a1a3a,
-    'MAX98357A', '19.4×17.8mm',
+    'MAX98357A', '22.9×17.8mm',
     ['I2S Class-D', '3W Amp', 'M2.5 × 2'],
-    '/static/components/max98357a.jpg');
+    '/static/components/max98357a.jpg', 'max98357a');
+  placeConnectors('max98357a', ampX, ampPcbY, ampZ, compGroup, connReg);
 
   /* ───────────────────────────────────────────────────────────────────
    * TP4056 LiPo Charger
@@ -1072,7 +1628,8 @@ function updateEnclosure() {
   makeCompBox(compGroup, TP_W, TP_H, TP_D, tpX, tpPcbY, tpZ, 0x1a2a2a,
     'TP4056', '28×17mm',
     ['LiPo Charger', 'USB-C In', 'Cradle Mount'],
-    '/static/components/tp4056.jpg');
+    '/static/components/tp4056.jpg', 'tp4056');
+  placeConnectors('tp4056', tpX, tpPcbY, tpZ, compGroup, connReg);
 
   // Cradle: side rails + front/rear stops
   const cradleMat = new THREE.MeshStandardMaterial({ color: 0x2a3a2a, roughness: 0.6, metalness: 0.1 });
@@ -1134,52 +1691,154 @@ function updateEnclosure() {
    */
   const BAT_W = 70, BAT_H = 18, BAT_D = 35;
   // Battery in back half of enclosure — separated from Pi (which is at piZ=-8)
-  const batZ  = hD - t - BAT_D / 2 - 3;
+  const batZ  = hD - t - BAT_D / 2 - 5;  // 5 mm clear of back wall for cradle tabs
   const batX  = -5;
-  makeCompBox(compGroup, BAT_W, BAT_H, BAT_D, batX, floorY + BAT_H / 2, batZ, 0x3a1a1a,
-    '18650 LiPo', '70×35×18mm',
-    ['3.7V · 5000mAh', '~3 days', 'TP4056→5V'],
-    '/static/components/battery_18650.jpg');
+  const batCY = floorY + BAT_H / 2;  // centre Y
 
-  /* ════════════════════════════════════════════════
-     FACE CUTOUT INDICATORS
-     ════════════════════════════════════════════════ */
-  cutoutGroup = new THREE.Group();
-  cutoutGroup.visible = p.showCutouts;
-  scene.add(cutoutGroup);
+  // ── Battery pack: outer shrink-wrap casing ──────────────────────────
+  {
+    const shrinkMat = new THREE.MeshStandardMaterial({ color: 0x2255aa, roughness: 0.45, metalness: 0.05 });
+    const mats = Array(6).fill(null).map(() => shrinkMat.clone());
+    const casing = new THREE.Mesh(new THREE.BoxGeometry(BAT_W, BAT_H, BAT_D), mats);
+    casing.position.set(batX, batCY, batZ);
+    casing.castShadow = casing.receiveShadow = true;
+    compGroup.add(casing);
 
-  const frontWallZ = -hD + t * 0.5;  // Z centre of front wall panel
-  const rightWallX =  hW - t * 0.5;  // X centre of right wall panel
-  const leftWallX  = -hW + t * 0.5;  // X centre of left wall panel
-
-  // Camera lens cutout: radius = CAM_LENS_R + 0.5 mm clearance
-  makeCutoutRing(cutoutGroup, CAM_LENS_R + 0.5, 0x0055ff, camX, camLensY, frontWallZ, 0, 0);
-
-  // PIR dome cutout: centred exactly on dome (pirX, pirPcbY) on front wall
-  makeCutoutRing(cutoutGroup, PIR_DOME_R + 1.5, 0xff8800, pirX, pirPcbY, frontWallZ, 0, 0);
-
-  // Speaker grille on right wall: SPK_R + 1 mm clearance ring + slot grid
-  makeCutoutRing(cutoutGroup, SPK_R + 1, 0xaa00ff, rightWallX, spkY, spkZ, 0, Math.PI / 2);
-  // 5× vertical grille slots inside speaker opening
-  for (let i = -2; i <= 2; i++) {
-    const slotMat = new THREE.MeshBasicMaterial({ color: 0xaa00ff, transparent: true, opacity: 0.4, side: THREE.DoubleSide });
-    const slotM = new THREE.Mesh(new THREE.PlaneGeometry(2.5, SPK_R * 1.7), slotMat);
-    slotM.rotation.y = Math.PI / 2;
-    slotM.position.set(rightWallX, spkY, spkZ + i * (SPK_R * 0.35));
-    cutoutGroup.add(slotM);
+    // Load battery image onto top face (+Y, face 2) and bottom face (-Y, face 3)
+    new THREE.TextureLoader().load('/static/components/battery_18650.jpg', tex => {
+      const maxAniso = renderer.capabilities.getMaxAnisotropy();
+      tex.colorSpace = THREE.SRGBColorSpace;
+      tex.anisotropy = maxAniso;
+      mats[2].map = tex; mats[2].needsUpdate = true;
+      // Mirror for underside face
+      const img = tex.image;
+      const c = document.createElement('canvas');
+      c.width = img.naturalWidth; c.height = img.naturalHeight;
+      const ctx = c.getContext('2d');
+      ctx.translate(c.width, 0); ctx.scale(-1, 1);
+      ctx.drawImage(img, 0, 0);
+      const tex2 = new THREE.CanvasTexture(c);
+      tex2.colorSpace = THREE.SRGBColorSpace;
+      tex2.anisotropy = maxAniso;
+      mats[3].map = tex2; mats[3].needsUpdate = true;
+    }, undefined, () => {});
   }
 
-  // USB-C port on right wall, at tpX height (TP4056 is near right wall)
-  // USB-C: 9 mm wide × 3.3 mm tall slot
-  makeMicroPort(cutoutGroup, 9, 3.3, rightWallX, tpPcbY + 1.5, tpZ, Math.PI / 2);
+  // ── Two 18650 cells (18mm dia × 65mm long) visible inside pack ──────
+  {
+    const CELL_R = 8.5;   // slightly under 9 mm so cells fit inside BAT_H=18
+    const CELL_L = 64;    // slightly under BAT_W=70
+    const cellMat  = new THREE.MeshStandardMaterial({ color: 0x1a1a60, roughness: 0.2, metalness: 0.85 });
+    const termMat  = new THREE.MeshStandardMaterial({ color: 0xddaa33, roughness: 0.15, metalness: 0.95 });
+    const negMat   = new THREE.MeshStandardMaterial({ color: 0x555555, roughness: 0.2, metalness: 0.9 });
+
+    for (const dz of [-(BAT_D / 4), (BAT_D / 4)]) {
+      // Cell body (runs along X)
+      const cell = new THREE.Mesh(new THREE.CylinderGeometry(CELL_R, CELL_R, CELL_L, 24), cellMat);
+      cell.rotation.z = Math.PI / 2;
+      cell.position.set(batX, batCY, batZ + dz);
+      cell.castShadow = true;
+      compGroup.add(cell);
+
+      // Positive terminal (+) — raised nub at one end
+      const pos = new THREE.Mesh(new THREE.CylinderGeometry(3, CELL_R * 0.55, 2, 16), termMat);
+      pos.rotation.z = Math.PI / 2;
+      pos.position.set(batX + CELL_L / 2 + 1, batCY, batZ + dz);
+      compGroup.add(pos);
+
+      // Negative terminal (−) — flat cap at other end
+      const neg = new THREE.Mesh(new THREE.CylinderGeometry(CELL_R * 0.9, CELL_R * 0.9, 1, 16), negMat);
+      neg.rotation.z = Math.PI / 2;
+      neg.position.set(batX - CELL_L / 2 - 0.5, batCY, batZ + dz);
+      compGroup.add(neg);
+    }
+
+    // NTC/protection PCB between cells (thin board visible through shrink wrap)
+    const pcbMat = new THREE.MeshStandardMaterial({ color: 0x004400, roughness: 0.6, metalness: 0.1 });
+    const pcb = new THREE.Mesh(new THREE.BoxGeometry(50, 2, 3), pcbMat);
+    pcb.position.set(batX, batCY + CELL_R + 1, batZ);
+    compGroup.add(pcb);
+  }
+
+  /* ── Battery cradle: printed base + end stops + zip-tie tabs + velcro pads ──
+   *
+   * Layout (top view):
+   *
+   *   [stop] [tab][===velcro===][tab][===velcro===][tab][===velcro===][tab] [stop]
+   *          |←————————————— 70 mm battery ————————————————————————→|
+   *
+   * Base plate:  BAT_W+6 × BAT_D+6 mm footprint, 2 mm thick (printed with enclosure floor)
+   * End stops:   3 mm thick walls at each X end, prevent cell-axis sliding
+   * Zip-tie tabs: 4 tabs (2 along front Z-edge, 2 along rear Z-edge) each with a
+   *               3.5 × 2.5 mm slot — thread a 3 mm zip tie through front+rear
+   *               pair and cinch over the battery
+   * Velcro pads: 3× 20×14 mm double-sided hook-and-loop squares across battery width
+   *              (stick hook to cradle floor, loop to battery underside)
+   */
+  {
+    const cradleMat = new THREE.MeshStandardMaterial({ color: 0x2d3e2d, roughness: 0.65, metalness: 0.05 });
+    const slotMat   = new THREE.MeshStandardMaterial({ color: 0x060606 });
+    const velcroMat = new THREE.MeshStandardMaterial({ color: 0x1a1010, roughness: 0.98, metalness: 0.0 });
+
+    const BASE_T = 2, MARGIN = 3;
+    const CW = BAT_W + MARGIN * 2;  // cradle width  = 76 mm
+    const CD = BAT_D + MARGIN * 2;  // cradle depth  = 41 mm
+
+    // Base plate — printed with enclosure floor → encGroup (shows in wireframe + export)
+    makeBox(encGroup, CW, BASE_T, CD, batX, floorY + BASE_T / 2, batZ, cradleMat);
+
+    // End stops — block sliding along cell axis (X)
+    const STOP_T = 3, STOP_H = 12;
+    const stopX0 = batX - BAT_W / 2 - MARGIN - STOP_T / 2;
+    const stopX1 = batX + BAT_W / 2 + MARGIN + STOP_T / 2;
+    makeBox(encGroup, STOP_T, STOP_H, CD, stopX0, floorY + BASE_T + STOP_H / 2, batZ, cradleMat);
+    makeBox(encGroup, STOP_T, STOP_H, CD, stopX1, floorY + BASE_T + STOP_H / 2, batZ, cradleMat);
+
+    // Zip-tie tabs: 2 X-positions × 2 Z-sides = 4 tabs
+    // Each tab has a 3.5 × 2.5 mm horizontal slot for a 3 mm zip tie
+    const TAB_W = 7, TAB_H = BAT_H + 8, TAB_D = 3;
+    const SLOT_W = 3.5, SLOT_H = 2.5;
+    const slotY = floorY + BASE_T + BAT_H * 0.65;          // slot at ~2/3 battery height
+    const tabZf  = batZ - BAT_D / 2 - MARGIN - TAB_D / 2;  // front Z-side
+    const tabZr  = batZ + BAT_D / 2 + MARGIN + TAB_D / 2;  // rear  Z-side
+    for (const tx of [batX - BAT_W * 0.28, batX + BAT_W * 0.28]) {
+      for (const tz of [tabZf, tabZr]) {
+        makeBox(encGroup, TAB_W, TAB_H, TAB_D, tx, floorY + BASE_T + TAB_H / 2, tz, cradleMat);
+        // Zip-tie slot — dark void punched through the tab face
+        makeBox(encGroup, SLOT_W, SLOT_H, TAB_D + 0.5, tx, slotY, tz, slotMat);
+      }
+    }
+
+    // Velcro pads — not printed; stay in mountGroup (toggle-able accessory)
+    const PAD_W = 20, PAD_H = 1.5, PAD_D = 14;
+    for (const vx of [batX - BAT_W * 0.28, batX, batX + BAT_W * 0.28]) {
+      makeBox(mountGroup, PAD_W, PAD_H, PAD_D, vx, floorY + BASE_T + PAD_H / 2, batZ, velcroMat);
+    }
+  }
+
+  /* ── Wire routing — drawn between registered connector endpoints ── */
+  WIRE_ROUTES.forEach(route => {
+    const from = connReg.get(route.from);
+    if (!from) return;
+    if (route.to) {
+      const to = connReg.get(route.to);
+      if (!to) return;
+      buildWire(compGroup, from.pos, from.dir, to.pos, to.dir, route.color, route.radius);
+    } else {
+      // Stub wire — hangs free (e.g. to battery pack / speaker)
+      const stub = from.pos.clone().addScaledVector(from.dir, 22);
+      buildWire(compGroup, from.pos, from.dir, stub, from.dir.clone().negate(), route.color, route.radius);
+    }
+  });
+
 
   /* ════════════════════════════════════════════════════════════════
      CSG WALL BUILDING WITH ACTUAL CUTOUT HOLES
      ════════════════════════════════════════════════════════════════
      Now that component positions are finalised, build each wall with
      CSG boolean subtraction of lens/dome/speaker/USB-C holes.
-     Results are added to encGroup for rendering AND collected in
-     exportGeos for the merged export geometry.
+     These meshes are visual only; the export geometry is built
+     separately below as a watertight hollow-box solid.
   ════════════════════════════════════════════════════════════════ */
 
   // Helper: make a pre-translated geo (world space)
@@ -1199,8 +1858,7 @@ function updateEnclosure() {
 
   // Floor (no holes)
   makeWall(encGroup, wallShell(),
-    boxGeoAt(W, t, D, 0, t/2, 0),
-    [], exportGeos);
+    boxGeoAt(W, t, D, 0, t/2, 0), []);
 
   // Front wall: camera lens + PIR dome holes
   makeWall(encGroup, wallShell(),
@@ -1208,17 +1866,15 @@ function updateEnclosure() {
     [
       cylHoleZ(CAM_LENS_R + 0.6, t + 4, camX, camLensY, -hD + t/2),
       cylHoleZ(PIR_DOME_R + 1.6, t + 4, pirX, pirPcbY,  -hD + t/2),
-    ], exportGeos);
+    ]);
 
   // Back wall (no holes)
   makeWall(encGroup, wallShell(),
-    boxGeoAt(W, H, t, 0, hH, hD - t/2),
-    [], exportGeos);
+    boxGeoAt(W, H, t, 0, hH, hD - t/2), []);
 
   // Left wall (no holes)
   makeWall(encGroup, wallShell(),
-    boxGeoAt(t, H, D, -hW + t/2, hH, 0),
-    [], exportGeos);
+    boxGeoAt(t, H, D, -hW + t/2, hH, 0), []);
 
   // Right wall: speaker grille + USB-C slot
   makeWall(encGroup, wallShell(),
@@ -1226,7 +1882,7 @@ function updateEnclosure() {
     [
       cylHoleX(SPK_R + 1, t + 4, hW - t/2, spkY, spkZ),
       boxHoleX(t+4, 3.6, 10, hW - t/2, tpPcbY + 1.5, tpZ),
-    ], exportGeos);
+    ]);
 
   // Lid corner boss columns (solid additions — no CSG needed)
   {
@@ -1242,20 +1898,240 @@ function updateEnclosure() {
     });
   }
 
-  /* Merge all wall geometries into a single exportGeometry */
+  /* ════════════════════════════════════════════════════════════════
+     DIMENSION ANNOTATIONS
+     ════════════════════════════════════════════════════════════════ */
+  dimGroup = new THREE.Group();
+  dimGroup.visible = p.showDims;
+  scene.add(dimGroup);
+
+  if (p.showDims) {
+    // Interior wall references — all location dims use these as datum
+    const iL = -hW + t, iR = hW - t, iF = -hD + t, iB = hD - t;
+
+    // Clearance layers from enclosure faces
+    const C = 12, S = 10;
+
+    // ═══════════════════════════════════════════════════════
+    // A. EXTERIOR ENVELOPE — W, H, D, wall thickness
+    // ═══════════════════════════════════════════════════════
+
+    // A1. Overall Width — below front-bottom edge
+    makeDim(dimGroup,
+      new THREE.Vector3(-hW, 0, -hD),
+      new THREE.Vector3( hW, 0, -hD),
+      new THREE.Vector3(0, -(C + S), -(C + S) * 0.5),
+      `${W.toFixed(0)} mm`);
+
+    // A2. Overall Height — right of front-right edge
+    makeDim(dimGroup,
+      new THREE.Vector3(hW, 0, -hD),
+      new THREE.Vector3(hW, H, -hD),
+      new THREE.Vector3(C + S, 0, -(C + S) * 0.5),
+      `${H.toFixed(0)} mm`);
+
+    // A3. Overall Depth — right of bottom-right edge
+    makeDim(dimGroup,
+      new THREE.Vector3(hW, 0, -hD),
+      new THREE.Vector3(hW, 0,  hD),
+      new THREE.Vector3(C + S, -(C + S) * 0.4, 0),
+      `${D.toFixed(0)} mm`);
+
+    // A4. Wall thickness — annotated at front-left corner
+    makeDim(dimGroup,
+      new THREE.Vector3(-hW,     H * 0.7, -hD),
+      new THREE.Vector3(-hW + t, H * 0.7, -hD),
+      new THREE.Vector3(-(C * 0.3), C, -(C * 0.5)),
+      `t ${t.toFixed(1)}`);
+
+    // ═══════════════════════════════════════════════════════
+    // B. FRONT WALL FEATURES (camera lens, PIR dome)
+    //    All p1/p2 on the exterior front face (Z = −hD).
+    //    outVec pushes into −Z (forward from enclosure).
+    //    Layer 1 (fZ1): hole diameters, tight to wall
+    //    Layer 2 (fZ2): feature heights from interior floor
+    //    Layer 3 (fZ3): feature X positions from interior datum
+    // ═══════════════════════════════════════════════════════
+    const fZ1 = -(C);            // outZ for layer 1
+    const fZ2 = -(C + S);        // outZ for layer 2
+    const fZ3 = -(C + S * 2);    // outZ for layer 3
+
+    // B1. Camera lens hole Ø — horizontal, at lens Y
+    makeDim(dimGroup,
+      new THREE.Vector3(camX - CAM_LENS_R - 0.6, camLensY, -hD),
+      new THREE.Vector3(camX + CAM_LENS_R + 0.6, camLensY, -hD),
+      new THREE.Vector3(0, C * 0.5, fZ1),
+      `Ø${((CAM_LENS_R + 0.6) * 2).toFixed(1)} mm`);
+
+    // B2. PIR dome hole Ø — horizontal, at PIR Y
+    makeDim(dimGroup,
+      new THREE.Vector3(pirX - PIR_DOME_R - 1.6, pirPcbY, -hD),
+      new THREE.Vector3(pirX + PIR_DOME_R + 1.6, pirPcbY, -hD),
+      new THREE.Vector3(0, -C * 0.5, fZ1),
+      `Ø${((PIR_DOME_R + 1.6) * 2).toFixed(1)} mm`);
+
+    // B3. Camera lens height from interior floor — vertical, left of lens
+    {
+      const dimX = camX - CAM_LENS_R - 0.6 - C;
+      makeDim(dimGroup,
+        new THREE.Vector3(dimX, t,         -hD),
+        new THREE.Vector3(dimX, camLensY,  -hD),
+        new THREE.Vector3(0, 0, fZ2),
+        `${(camLensY - t).toFixed(1)} mm`);
+    }
+
+    // B4. PIR centre height from interior floor — vertical, right of PIR dome
+    {
+      const dimX = pirX + PIR_DOME_R + 1.6 + C;
+      makeDim(dimGroup,
+        new THREE.Vector3(dimX, t,        -hD),
+        new THREE.Vector3(dimX, pirPcbY,  -hD),
+        new THREE.Vector3(0, 0, fZ2),
+        `${(pirPcbY - t).toFixed(1)} mm`);
+    }
+
+    // B5. Camera X centre from interior left wall — horizontal, at lens Y
+    makeDim(dimGroup,
+      new THREE.Vector3(iL,   camLensY, -hD),
+      new THREE.Vector3(camX, camLensY, -hD),
+      new THREE.Vector3(0, C * 0.5, fZ3),
+      `${(camX - iL).toFixed(1)} mm`);
+
+    // B6. PIR X centre from interior right wall — horizontal, at PIR Y
+    makeDim(dimGroup,
+      new THREE.Vector3(pirX, pirPcbY, -hD),
+      new THREE.Vector3(iR,   pirPcbY, -hD),
+      new THREE.Vector3(0, -C * 0.5, fZ3),
+      `${(iR - pirX).toFixed(1)} mm`);
+
+
+    // ═══════════════════════════════════════════════════════
+    // C. RIGHT WALL FEATURES (speaker)
+    //    p1/p2 on right exterior face (X = +hW).
+    //    outVec pushes into +X (outward from enclosure).
+    // ═══════════════════════════════════════════════════════
+    const rX1 = C, rX2 = C + S;
+
+    // C1. Speaker hole Ø — vertical, beside right wall
+    makeDim(dimGroup,
+      new THREE.Vector3(hW, spkY - SPK_R - 1, spkZ),
+      new THREE.Vector3(hW, spkY + SPK_R + 1, spkZ),
+      new THREE.Vector3(rX1, 0, 0),
+      `Ø${((SPK_R + 1) * 2).toFixed(1)} mm`);
+
+    // C2. Speaker centre height from interior floor
+    makeDim(dimGroup,
+      new THREE.Vector3(hW, t,     spkZ),
+      new THREE.Vector3(hW, spkY,  spkZ),
+      new THREE.Vector3(rX2, 0, 0),
+      `${(spkY - t).toFixed(1)} mm`);
+
+    // C3. Speaker centre Z from interior front wall
+    makeDim(dimGroup,
+      new THREE.Vector3(hW, spkY, iF),
+      new THREE.Vector3(hW, spkY, spkZ),
+      new THREE.Vector3(rX2, 0, 0),
+      `${(spkZ - iF).toFixed(1)} mm`);
+
+    // ═══════════════════════════════════════════════════════
+    // D. FLOOR PLAN — component X/Z locations from interior datum
+    //    p1/p2 at Y=0 (exterior floor); outVec pushes into −Y.
+    //    Dim lines float below the enclosure floor.
+    // ═══════════════════════════════════════════════════════
+
+    // D1. Pi Zero X from interior left wall
+    makeDim(dimGroup,
+      new THREE.Vector3(iL,  0, piZ),
+      new THREE.Vector3(piX, 0, piZ),
+      new THREE.Vector3(0, -C, 0),
+      `${(piX - iL).toFixed(1)} mm`);
+
+    // D2. Pi Zero Z from interior front wall
+    makeDim(dimGroup,
+      new THREE.Vector3(piX, 0, iF),
+      new THREE.Vector3(piX, 0, piZ),
+      new THREE.Vector3(-(C + S), 0, 0),
+      `${(piZ - iF).toFixed(1)} mm`);
+
+
+    // D4. Pi standoff height — beside front-right standoff
+    makeDim(dimGroup,
+      new THREE.Vector3(piX + 29 + C, t,                    piZ - 11.5),
+      new THREE.Vector3(piX + 29 + C, piPcbY - PI_H / 2,    piZ - 11.5),
+      new THREE.Vector3(C * 0.4, 0, 0),
+      `${PI_STANDOFF} mm`);
+
+    // D5. MAX98357A X from interior left wall
+    makeDim(dimGroup,
+      new THREE.Vector3(iL,   0, ampZ),
+      new THREE.Vector3(ampX, 0, ampZ),
+      new THREE.Vector3(0, -(C + S), 0),
+      `${(ampX - iL).toFixed(1)} mm`);
+
+
+    // D7. TP4056 X from interior right wall
+    makeDim(dimGroup,
+      new THREE.Vector3(tpX, 0, tpZ),
+      new THREE.Vector3(iR,  0, tpZ),
+      new THREE.Vector3(0, -C, 0),
+      `${(iR - tpX).toFixed(1)} mm`);
+
+  }
+
+  /* ════════════════════════════════════════════════════════════════
+     EXPORT GEOMETRY — watertight manifold via CSG
+     ════════════════════════════════════════════════════════════════
+     Build the box body as (outer solid) − (inner cavity) − (holes).
+     The inner cavity is 1 mm taller than the enclosure so it clearly
+     pierces the top face, leaving an open-top box with a t-wide lid-
+     seat rim — a single connected, manifold shell.
+     The lid is a separate closed solid merged into the same export.
+  ════════════════════════════════════════════════════════════════ */
   try {
-    const merged = BufferGeometryUtils.mergeGeometries(exportGeos, false);
-    exportGeometry = BufferGeometryUtils.mergeVertices(merged, 1e-3);
+    // Outer bounding solid
+    const outerBox = geoAt(new THREE.BoxGeometry(W, H, D), 0, H / 2, 0);
+
+    // Inner cavity — starts at y=t (top of floor), exits 1 mm above top face
+    const cavH = H - t + 1;
+    const innerCav = geoAt(new THREE.BoxGeometry(W - 2*t, cavH, D - 2*t), 0, t + cavH / 2, 0);
+
+    // Punch holes (same positions as visual walls)
+    const exportHoles = [
+      cylHoleZ(CAM_LENS_R + 0.6, t + 4, camX,     camLensY,        -hD + t/2),
+      cylHoleZ(PIR_DOME_R + 1.6, t + 4, pirX,     pirPcbY,         -hD + t/2),
+      cylHoleX(SPK_R + 1,        t + 4, hW - t/2, spkY,            spkZ),
+      geoAt(new THREE.BoxGeometry(t + 4, 3.6, 10), hW - t/2, tpPcbY + 1.5, tpZ),
+    ];
+
+    const bodyGeo = csgSubtract(outerBox, [innerCav, ...exportHoles]);
+    bodyGeo.computeVertexNormals();
+
+    // Lid — simple closed solid (always manifold)
+    const lidRaw = geoAt(new THREE.BoxGeometry(W, t, D), 0, H + p.lidGap + t / 2, 0);
+
+    // Merge body + lid (two disconnected manifold shells)
+    const bodyNI = bodyGeo.index ? bodyGeo.toNonIndexed() : bodyGeo;
+    const lidNI  = lidRaw.toNonIndexed();
+    const strip  = g => { const n = new THREE.BufferGeometry(); n.setAttribute('position', g.getAttribute('position')); const nm = g.getAttribute('normal'); if (nm) n.setAttribute('normal', nm); return n; };
+    exportGeometry = BufferGeometryUtils.mergeGeometries([strip(bodyNI), strip(lidNI)], false);
     exportGeometry.computeVertexNormals();
-    // Enable export buttons
-    document.getElementById('btn-export-stl').disabled = false;
-    document.getElementById('btn-export-3mf').disabled = false;
+
+    const stlBtn = document.getElementById('btn-export-stl');
+    const mfBtn  = document.getElementById('btn-export-3mf');
+    stlBtn.disabled = false; stlBtn.style.opacity = '1';
+    mfBtn.disabled  = false; mfBtn.style.opacity  = '1';
+    document.getElementById('export-status').textContent = '';
   } catch(e) {
-    console.warn('[Export] Geometry merge failed:', e);
+    console.warn('[Export] Geometry build failed:', e);
+    document.getElementById('export-status').textContent = 'CSG failed: ' + e.message;
   }
 
   /* Re-apply tessellation overlay if active */
   if (tessMode) applyTessMode(true);
+
+  /* Re-apply component display modes so rebuild doesn't flash old state */
+  applyTextureMode(showTextures);
+  applyPcbWireMode(document.getElementById('ctrl-pcbwire').checked);
 
   updateInfo(p);
 }
@@ -1303,18 +2179,35 @@ opacityInput.addEventListener('input', () => {
   updateShellOpacity(parseFloat(opacityInput.value));
 });
 
-['ctrl-components','ctrl-mounts','ctrl-cutouts'].forEach(id => {
+['ctrl-mounts','ctrl-dims'].forEach(id => {
   document.getElementById(id).addEventListener('change', updateEnclosure);
 });
 
 // Tessellation toggle
-const tessBtn = document.getElementById('btn-tess');
-tessBtn.addEventListener('click', () => {
-  const on = !tessMode;
-  applyTessMode(on);
-  tessBtn.textContent = on ? 'Tessellation: ON' : 'Tessellation: OFF';
-  tessBtn.style.background = on ? '#0a1a0a' : '#1a2a1a';
-  tessBtn.style.color      = on ? '#aaffaa' : '#6abf69';
+document.getElementById('ctrl-tess').addEventListener('change', e => {
+  applyTessMode(e.target.checked);
+});
+
+document.getElementById('ctrl-textures').addEventListener('change', e => {
+  applyTextureMode(e.target.checked);
+});
+
+document.getElementById('ctrl-pcbwire').addEventListener('change', e => {
+  applyPcbWireMode(e.target.checked);
+});
+
+document.getElementById('ctrl-enclosure-only').addEventListener('change', e => {
+  const encOnly = e.target.checked;
+  // Hide/show all component and mount geometry
+  if (compGroup)  compGroup.visible  = !encOnly;
+  if (mountGroup) mountGroup.visible = !encOnly;
+  if (dimGroup)   dimGroup.visible   = !encOnly && document.getElementById('ctrl-dims').checked;
+  // Disable the component-related controls visually while in enclosure-only mode
+  ['ctrl-mounts','ctrl-dims','ctrl-textures','ctrl-pcbwire'].forEach(id => {
+    const el = document.getElementById(id);
+    el.disabled = encOnly;
+    el.closest('label').style.opacity = encOnly ? '0.4' : '';
+  });
 });
 
 // Export buttons
@@ -1349,12 +2242,269 @@ function onResize() {
   renderer.setSize(w, h);
   camera.aspect = w / h;
   camera.updateProjectionMatrix();
+  DIM_LINE_MAT.resolution.set(w, h);
+  PCB_LINE_MAT.resolution.set(w, h);
 }
 new ResizeObserver(onResize).observe(wrap);
 onResize();
 
 /* ── Render loop ── */
-(function animate() { requestAnimationFrame(animate); controls.update(); renderer.render(scene, camera); })();
+const _sp = new THREE.Vector3(); // reused each frame — avoids GC pressure
+/* ── Click-to-focus: click any mesh to orbit around it ───────────────────
+ * Single click  → snap orbit pivot to component centre, subtle dolly-in (85%)
+ * Double-click  → same pivot snap + stronger dolly-in (55%)
+ * Click empty space → reset pivot to default (0,40,0)
+ *
+ * Strategy: snap controls.target immediately so OrbitControls locks onto it,
+ * then tween only the radial camera distance.  Tweening target+camera.position
+ * together confuses OrbitControls' internal spherical state.
+ *
+ * Drag detection: pointerdown records start; pointermove sets _didDrag on > 4px.
+ */
+{
+  const _ray    = new THREE.Raycaster();
+  const _mouse  = new THREE.Vector2();
+  const _centre = new THREE.Vector3();
+  let   _downX = 0, _downY = 0, _didDrag = false;
+  let   _lastClickTime = 0;
+  // Radial dolly tween: only camera.position moves (toward/away from target).
+  let   _dollyTween = null;  // { dir, startDist, endDist, t, dur }
+
+  function focusOn(worldPt, distScale) {
+    // 1. Snap target immediately — OrbitControls reads this on every update().
+    const oldDist = camera.position.distanceTo(controls.target);
+    controls.target.copy(worldPt);
+
+    // 2. Put camera at same distance from the NEW target, same viewing direction.
+    const dir = camera.position.clone().sub(worldPt).normalize();
+    camera.position.copy(worldPt).addScaledVector(dir, oldDist);
+
+    // 3. Force OrbitControls to rebuild its internal spherical from the new state.
+    controls.update();
+
+    // 4. Kick off a smooth radial dolly if needed.
+    if (Math.abs(distScale - 1.0) > 0.01) {
+      _dollyTween = { dir, startDist: oldDist, endDist: oldDist * distScale, t: 0, dur: 0.4 };
+    } else {
+      _dollyTween = null;
+    }
+  }
+
+  renderer.domElement.addEventListener('pointerdown', e => {
+    if (e.button !== 0) return;
+    _downX = e.clientX;  _downY = e.clientY;  _didDrag = false;
+  });
+
+  renderer.domElement.addEventListener('pointermove', e => {
+    if (!(e.buttons & 1)) return;
+    const dx = e.clientX - _downX, dy = e.clientY - _downY;
+    if (dx*dx + dy*dy > 16) _didDrag = true;
+  });
+
+  renderer.domElement.addEventListener('pointerup', e => {
+    if (e.button !== 0 || _didDrag) return;
+
+    const rect = renderer.domElement.getBoundingClientRect();
+    _mouse.set(
+      ((e.clientX - rect.left) / rect.width)  *  2 - 1,
+      ((e.clientY - rect.top)  / rect.height) * -2 + 1,
+    );
+    _ray.setFromCamera(_mouse, camera);
+
+    // Only raycast against components + mounts — not the enclosure shell/floor
+    // (shell is transparent geometry that would always be the first hit).
+    const targets = [];
+    [compGroup, mountGroup].forEach(grp => {
+      if (!grp) return;
+      grp.traverse(obj => {
+        if (obj.isMesh && obj.visible && !obj.userData.isPcbWire) targets.push(obj);
+      });
+    });
+    const hits = _ray.intersectObjects(targets, false);
+
+    const now = performance.now();
+    const dbl = (now - _lastClickTime) < 400;
+    _lastClickTime = now;
+
+    if (hits.length === 0) {
+      focusOn(new THREE.Vector3(0, 40, 0), 1.0);
+    } else {
+      const obj = hits[0].object;
+      if (!obj.geometry.boundingSphere) obj.geometry.computeBoundingSphere();
+      _centre.copy(obj.geometry.boundingSphere.center);
+      obj.localToWorld(_centre);
+      focusOn(_centre, dbl ? 0.55 : 0.85);
+    }
+    _pivotGroup.userData.pulse();
+  });
+
+  // Radial dolly tick — called from animate() before controls.update().
+  window._tickFocusTween = function(dt) {
+    if (!_dollyTween) return;
+    _dollyTween.t = Math.min(_dollyTween.t + dt / _dollyTween.dur, 1);
+    const k    = 1 - Math.pow(1 - _dollyTween.t, 3);  // ease-out cubic
+    const dist = _dollyTween.startDist + (_dollyTween.endDist - _dollyTween.startDist) * k;
+    camera.position.copy(controls.target).addScaledVector(_dollyTween.dir, dist);
+    if (_dollyTween.t >= 1) _dollyTween = null;
+  };
+}
+
+/* ── Pivot indicator ─────────────────────────────────────────────────────
+ * Small sphere + 3-axis crosshair at controls.target.
+ * Pulses briefly (1 s) when the pivot is moved, then fades to a dim resting state.
+ */
+const _pivotGroup = (() => {
+  const g = new THREE.Group();
+  g.renderOrder = 10;
+
+  // Sphere
+  const sphereMat = new THREE.MeshBasicMaterial({ color: 0xff6600, transparent: true, opacity: 0.9, depthTest: false });
+  const sphere    = new THREE.Mesh(new THREE.SphereGeometry(2, 12, 8), sphereMat);
+  sphere.renderOrder = 10;
+  g.add(sphere);
+
+  // 3-axis crosshair lines (each axis ±8 mm)
+  const lineMat = new THREE.LineBasicMaterial({ color: 0xff6600, transparent: true, opacity: 0.7, depthTest: false });
+  [
+    [[-8,0,0],[8,0,0]], [[0,-8,0],[0,8,0]], [[0,0,-8],[0,0,8]],
+  ].forEach(([a, b]) => {
+    const geo = new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(...a), new THREE.Vector3(...b)]);
+    const ln  = new THREE.Line(geo, lineMat);
+    ln.renderOrder = 10;
+    g.add(ln);
+  });
+
+  scene.add(g);
+
+  let _pulseT = 0;   // 0 = resting, >0 = fading out pulse
+
+  g.userData.pulse  = () => { _pulseT = 1.2; };
+  g.userData.tick   = (dt) => {
+    if (_pulseT > 0) _pulseT = Math.max(0, _pulseT - dt);
+    // bright (opacity 0.9→0.2) during pulse, dim at rest
+    const op = _pulseT > 0 ? THREE.MathUtils.lerp(0.2, 0.9, Math.min(_pulseT, 1)) : 0.2;
+    sphereMat.opacity = op;
+    lineMat.opacity   = op * 0.8;
+    // Scale sphere relative to camera distance so it stays a fixed screen size
+    const d = camera.position.distanceTo(g.position);
+    const s = d * Math.tan(camera.fov * Math.PI / 360) * 0.028;
+    g.scale.setScalar(s);
+  };
+
+  return g;
+})();
+
+/* ── Orientation gizmo — lower-left corner, screen-space ────────────────
+ * The camera is FIXED at (0,0,5) always looking at origin — it never moves.
+ * All axis objects live inside a Group whose quaternion is set each frame to
+ * the CONJUGATE of the main camera's quaternion, so the axes visually track
+ * the scene orientation without any camera position shifts or clipping issues.
+ */
+const _gizmo = (() => {
+  const gs    = new THREE.Scene();
+  // Wider frustum (±2.8) so labels at axis tips stay inside when at any angle.
+  const gc    = new THREE.OrthographicCamera(-2.8, 2.8, 2.8, -2.8, 0.1, 20);
+  gc.position.set(0, 0, 5);
+  // Camera never moves — no lookAt needed (default -Z forward is correct).
+
+  const grp = new THREE.Group();
+  gs.add(grp);
+
+  const AXES = [
+    { dir: new THREE.Vector3(1, 0, 0), color: 0xff3333, label: 'X' },
+    { dir: new THREE.Vector3(0, 1, 0), color: 0x44cc44, label: 'Y' },
+    { dir: new THREE.Vector3(0, 0, 1), color: 0x4488ff, label: 'Z' },
+  ];
+
+  AXES.forEach(({ dir, color, label }) => {
+    const tip = dir.clone().multiplyScalar(1.4);
+
+    // Shaft line
+    const lGeo = new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(0,0,0), dir.clone().multiplyScalar(1.1)]);
+    const lMat = new THREE.LineBasicMaterial({ color, depthTest: false });
+    const line = new THREE.Line(lGeo, lMat);
+    line.renderOrder = 100;
+    grp.add(line);
+
+    // Cone arrowhead
+    const cGeo = new THREE.ConeGeometry(0.09, 0.28, 10);
+    const cMat = new THREE.MeshBasicMaterial({ color, depthTest: false });
+    const cone = new THREE.Mesh(cGeo, cMat);
+    cone.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), dir);
+    cone.position.copy(dir).multiplyScalar(1.22);
+    cone.renderOrder = 100;
+    grp.add(cone);
+
+    // Text label — sprite (auto-faces camera; fine here since camera is fixed)
+    const c = document.createElement('canvas');
+    c.width = 64; c.height = 64;
+    const ctx = c.getContext('2d');
+    ctx.font = 'bold 44px sans-serif';
+    ctx.fillStyle = '#' + new THREE.Color(color).getHexString();
+    ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    ctx.fillText(label, 32, 32);
+    const sp = new THREE.Sprite(new THREE.SpriteMaterial({ map: new THREE.CanvasTexture(c), depthTest: false }));
+    sp.scale.set(0.5, 0.5, 1);
+    sp.position.copy(tip);
+    sp.renderOrder = 101;
+    grp.add(sp);
+  });
+
+  // Origin dot
+  const oDot = new THREE.Mesh(new THREE.SphereGeometry(0.1, 10, 8),
+    new THREE.MeshBasicMaterial({ color: 0xcccccc, depthTest: false }));
+  oDot.renderOrder = 100;
+  grp.add(oDot);
+
+  return { scene: gs, camera: gc, group: grp };
+})();
+let _lastFrameTime = performance.now();
+(function animate() {
+  requestAnimationFrame(animate);
+  const now = performance.now();
+  const dt  = Math.min((now - _lastFrameTime) / 1000, 0.1);
+  _lastFrameTime = now;
+  if (window._tickFocusTween) _tickFocusTween(dt);
+  controls.update();
+  // Keep pivot indicator locked to orbit target
+  _pivotGroup.position.copy(controls.target);
+  _pivotGroup.userData.tick(dt);
+
+  // Keep dim-line sprites a fixed apparent size regardless of zoom.
+  // For a perspective camera: worldHeight = targetPx * 2*tan(fov/2) * dist / screenHeightPx
+  if (dimGroup && dimGroup.visible) {
+    const TARGET_PX = 52; // desired label height in screen pixels
+    const halfTan   = Math.tan(camera.fov * Math.PI / 360);
+    const sh        = renderer.domElement.height || 1;
+    dimGroup.traverse(obj => {
+      if (!obj.isSprite || obj.userData.labelAspect === undefined) return;
+      const dist = camera.position.distanceTo(obj.getWorldPosition(_sp));
+      const h    = TARGET_PX * 2 * halfTan * dist / sh;
+      obj.scale.set(h * obj.userData.labelAspect, h, 1);
+    });
+  }
+
+  renderer.render(scene, camera);
+
+  // ── Orientation gizmo in lower-left corner ───────────────────────────
+  {
+    const GS  = 154;  // gizmo viewport size in CSS pixels (~40% bigger than 110)
+    const pad = 14;
+    // Rotate the axis group by the conjugate of the main camera's quaternion.
+    // The camera is permanently fixed at (0,0,5); rotating the group makes the
+    // axes track scene orientation without any camera-position/clipping issues.
+    _gizmo.group.quaternion.copy(camera.quaternion).invert();
+    renderer.autoClear = false;
+    renderer.setViewport(pad, pad, GS, GS);
+    renderer.setScissor(pad, pad, GS, GS);
+    renderer.setScissorTest(true);
+    renderer.clearDepth();
+    renderer.render(_gizmo.scene, _gizmo.camera);
+    renderer.setScissorTest(false);
+    renderer.setViewport(0, 0, renderer.domElement.clientWidth, renderer.domElement.clientHeight);
+    renderer.autoClear = true;
+  }
+})();
 
 /* ── Initial build ── */
 updateEnclosure();

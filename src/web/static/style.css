@@ -691,6 +691,7 @@ img.snapshot { max-width: 720px; width: 100%; border-radius: 6px; border: 1px so
 .comp-role--sensor   { background: #201800; color: #cc9933; border: 1px solid #403000; }
 .comp-role--audio    { background: #200a20; color: #aa66cc; border: 1px solid #3a1a3a; }
 .comp-role--power    { background: #200a0a; color: #cc5533; border: 1px solid #401515; }
+.comp-role--mount    { background: #141414; color: #aaaaaa; border: 1px solid #333333; }
 .comp-img { cursor: zoom-in; transition: opacity 0.15s; }
 .comp-img:hover { opacity: 0.85; }
 .comp-footer {
