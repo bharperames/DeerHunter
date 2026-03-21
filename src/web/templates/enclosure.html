@@ -166,11 +166,6 @@
       </div>
 
       <label class="ep-check-row">
-        <input type="checkbox" id="ctrl-mounts" checked>
-        <span class="ep-check-label">Show mounting posts</span>
-      </label>
-
-      <label class="ep-check-row">
         <input type="checkbox" id="ctrl-dims">
         <span class="ep-check-label">Show dimensions</span>
       </label>
@@ -367,7 +362,7 @@ scene.add(bottom);
 })();
 
 /* ── Group management ── */
-let encGroup = null, compGroup = null, mountGroup = null, dimGroup = null, wireGroup = null;
+let encGroup = null, compGroup = null, dimGroup = null, wireGroup = null;
 let exportGeometry = null;   // merged printable geometry (set after CSG build)
 let exportParts    = null;   // [bodyGeo, lidGeo] — separate manifold shells for 3MF
 let tessMode = false;        // wireframe overlay toggle
@@ -529,12 +524,12 @@ function csgSubtract(baseGeo, holeGeos) {
     try {
       const result = csgEval.evaluate(brush, holeBrush, SUBTRACTION);
       result.updateMatrixWorld();
-      brush = result;
+      if (result.geometry) brush = result;   // guard: skip if library returns null geo
     } catch (e) {
       console.warn('[CSG] Subtraction failed, skipping hole:', e);
     }
   }
-  return brush.geometry;
+  return brush.geometry || baseGeo;  // fallback to original if still null
 }
 
 // Build a wall mesh with CSG holes and add to parent (visual only)
@@ -796,8 +791,8 @@ const COMP_SPECS = {
     ],
   },
   hc_sr501: {
-    // PCB 32×24 mm vertical; header exits top
-    mountHoles: [{x:-14,z:0},{x:14,z:0}],
+    // PCB 32×24 mm vertical; M2 holes near bottom edge (3.5 mm from edge = -8.5 mm from centre)
+    mountHoles: [{x:-14,z:-8.5},{x:14,z:-8.5}],
     holeLabel: 'M2',
     imgTransform: { rotate: 0, flipX: false },
     connectors: [
@@ -805,10 +800,10 @@ const COMP_SPECS = {
     ],
   },
   max98357a: {
-    // Adafruit #3006: PCB 22.86×17.78 mm (0.9"×0.7"), 1.6 mm thick
-    // 2× M2.5 oval slots, 2 mm from each long (22.86 mm) edge → 18.86 mm C-C → ±9.43 mm
+    // Adafruit #3006: PCB 19.05×17.78 mm (Eagle .brd verified; product page: 19.4×17.8 mm)
+    // 2× M2.5 oval slots, ~2 mm from each long (19.05 mm) edge → ±7.53 mm from centre
     // I2S 5-pin header on one short edge (−Z); speaker spring terminals on other (+Z)
-    mountHoles: [{x:-9.43,z:0},{x:9.43,z:0}],
+    mountHoles: [{x:-7.53,z:0},{x:7.53,z:0}],
     holeLabel: 'M2.5',
     imgTransform: { rotate: 180, flipX: false },
     connectors: [
@@ -1397,7 +1392,6 @@ function getParams() {
     wallT:          parseFloat(document.getElementById('ctrl-wall').value),
     lidGap:         parseFloat(document.getElementById('ctrl-lid').value),
     shellOpacity:   parseFloat(document.getElementById('ctrl-opacity').value) / 100,
-    showMounts:     document.getElementById('ctrl-mounts').checked,
     showDims:       document.getElementById('ctrl-dims').checked,
   };
 }
@@ -1424,7 +1418,6 @@ function updateEnclosure() {
   const p = getParams();
   disposeGroup(encGroup);
   disposeGroup(compGroup);
-  disposeGroup(mountGroup);
   disposeGroup(dimGroup);
   disposeGroup(wireGroup);
   wireGroup = null;
@@ -1441,6 +1434,12 @@ function updateEnclosure() {
   /* Interior extents (coordinate origin = center of floor level) */
   const iW = W - 2*t, iH = H - 2*t, iD = D - 2*t;
 
+  // TP4056 position declared early so lid CSG can add the LED indicator window
+  // PCB: 28×17 mm flat on floor, USB-C side faces right wall (+X)
+  const TP_W = 28, TP_D = 17, TP_H = 1.6;
+  const tpX  = hW - t - TP_W / 2 - 3;   // PCB right face 3 mm from right wall interior
+  const tpZ  = hD - t - TP_D / 2 - 4;   // near rear wall
+
   /* ── Enclosure shell material ── */
   const shellMat = () => new THREE.MeshStandardMaterial({
     color: 0x2a3a2a, roughness: 0.75, metalness: 0.08,
@@ -1455,22 +1454,11 @@ function updateEnclosure() {
   encGroup = new THREE.Group();
   scene.add(encGroup);
 
-  /* We defer making CSG holes until component positions are known below.
-     For now build the solid walls; they're replaced post-component section. */
-
-  // Lid — raised above box by lidGap (no holes, built immediately)
-  makeBox(encGroup, W, t, D, 0, H + p.lidGap + t/2, 0, shellMat());
-
-
   /* ════════════════════════════════════════════════
      COMPONENTS
      ════════════════════════════════════════════════ */
   compGroup = new THREE.Group();
   scene.add(compGroup);
-
-  mountGroup = new THREE.Group();
-  mountGroup.visible = p.showMounts;
-  scene.add(mountGroup);
 
   const floorY = t; // interior floor Y = top of floor panel
 
@@ -1492,12 +1480,13 @@ function updateEnclosure() {
    * Placed: centre of floor, slightly left so camera/PIR can go right
    */
   const PI_W = 65, PI_D = 30, PI_H = 1.6;
-  const PI_STANDOFF = 5;    // standoff height (mm)
-  const PI_HOLE_R   = 1.25; // M2.5 post radius
+  const PI_STANDOFF = 8;    // boss height (mm) — printed plastic, M2.6 self-tapping
+  const PI_HOLE_R   = 1.25; // kept for piPcbY calc
+  const PI_BOSS_R   = 4.0;  // 8 mm OD — ~3× screw diameter, good PETG wall thickness
+  const PI_PILOT_R  = 1.0;  // Ø2.0 mm pilot hole for M2.6
   const piX = -5, piZ = -20; // world position: front half of enclosure, clear of battery
   const piPcbY = floorY + PI_STANDOFF + PI_H / 2;
   const piHoles = COMP_SPECS.pi_zero_2w.mountHoles.map(h => [piX + h.x, piZ + h.z]);
-  addStandoffs(mountGroup, piHoles, floorY, PI_STANDOFF, PI_HOLE_R);
   makeCompBox(compGroup, PI_W, PI_H, PI_D, piX, piPcbY, piZ, 0x1a3a1a,
     'Pi Zero 2W', '65×30mm',
     ['ARM A53 1GHz', '512MB RAM', 'M2.5 × 4'],
@@ -1542,15 +1531,6 @@ function updateEnclosure() {
   lensBarrel.position.set(camX, camLensY, -hD - (CAM_LENS_PROTRUDE - t) / 2);
   compGroup.add(lensBarrel);
 
-  // M2 boss inserts on front wall (4×, one at each corner of PCB)
-  // Boss cylinders run through front wall thickness (depth = t + 2 for visibility)
-  COMP_SPECS.camera_v3_noir.mountHoles.forEach(h => {
-    const hm = new THREE.Mesh(new THREE.CylinderGeometry(1.2, 1.2, t + 2, 12), BRASS_MAT());
-    hm.rotation.x = Math.PI / 2;
-    hm.position.set(camX + h.x, camPcbCentreY + h.z, -hD);
-    mountGroup.add(hm);
-  });
-
   /* ───────────────────────────────────────────────────────────────────
    * HC-SR501 PIR Sensor — mounted VERTICALLY on front wall
    *
@@ -1569,14 +1549,6 @@ function updateEnclosure() {
   const pirX   = hW * 0.28;
   const pirPcbY = floorY + PIR_H_PCB / 2 + 12;  // 12 mm off floor
   const pirPcbZ = -hD + t + PIR_PCB_T / 2;       // PCB flush with front wall interior
-
-  // M2 boss inserts on front wall (horizontal, ±14 mm from pirX)
-  [pirX - 14, pirX + 14].forEach(hx => {
-    const bm = new THREE.Mesh(new THREE.CylinderGeometry(1.2, 1.2, t + 2, 12), BRASS_MAT());
-    bm.rotation.x = Math.PI / 2;    // cylinder axis along Z (through wall)
-    bm.position.set(hx, pirPcbY, -hD);
-    mountGroup.add(bm);
-  });
 
   // PCB box (vertical slab, largest face = +Y/-Y 32×24mm → auto-selects PCB art)
   makeCompBox(compGroup, PIR_W, PIR_H_PCB, PIR_PCB_T, pirX, pirPcbY, pirPcbZ, 0x3a2a1a,
@@ -1606,18 +1578,19 @@ function updateEnclosure() {
    * 2× M2.5 oval slots, 18.86 mm C-C along the 22.86 mm (long) axis → ±9.43 mm
    * Placed against left wall, mid-depth
    */
-  const AMP_W = 22.86, AMP_D = 17.78, AMP_H = 1.6;
+  const AMP_W = 19.05, AMP_D = 17.78, AMP_H = 1.6;  // Eagle .brd: 19.05×17.78 mm
   const AMP_STANDOFF = 5;
-  const AMP_HOLE_R   = 1.25; // M2.5
+  const AMP_HOLE_R   = 1.25; // kept for ampPcbY calc
+  const AMP_BOSS_R   = 3.0;  // 6 mm OD for M2.6 self-tapping
+  const AMP_PILOT_R  = 1.0;  // Ø2.0 mm pilot hole for M2.6
 
   const ampX = -(hW - t - AMP_W / 2 - 3);
   const ampZ = -12;  // was -5; moved toward front to clear battery (bat front edge ≈ +2 mm)
   const ampPcbY = floorY + AMP_STANDOFF + AMP_H / 2;
 
   const ampHoles = COMP_SPECS.max98357a.mountHoles.map(h => [ampX + h.x, ampZ + h.z]);
-  addStandoffs(mountGroup, ampHoles, floorY, AMP_STANDOFF, AMP_HOLE_R);
   makeCompBox(compGroup, AMP_W, AMP_H, AMP_D, ampX, ampPcbY, ampZ, 0x2a1a3a,
-    'MAX98357A', '22.9×17.8mm',
+    'MAX98357A', '19.1×17.8mm',
     ['I2S Class-D', '3W Amp', 'M2.5 × 2'],
     '/static/components/max98357a.jpg', 'max98357a');
   placeConnectors('max98357a', ampX, ampPcbY, ampZ, compGroup, connReg);
@@ -1626,12 +1599,10 @@ function updateEnclosure() {
    * TP4056 LiPo Charger
    * PCB: 28 × 17 mm, 1.6 mm thick — NO mounting holes
    * Friction cradle: two 1.5 mm rails on either side, plus front/rear stops
-   * USB-C port on the 17 mm edge (left wall side)
-   * Placed right-rear corner, near left wall for USB-C access
+   * USB-C port on +X face → right wall slot cutout for access
+   * Charge LEDs on top face → 12×5 mm lid window for visibility
+   * Position constants declared early (above lid section) for lid CSG
    */
-  const TP_W = 28, TP_D = 17, TP_H = 1.6;
-  const tpX = hW - t - TP_W / 2 - 3;
-  const tpZ = hD - t - TP_D / 2 - 4;
   const tpPcbY = floorY + TP_H / 2;
 
   makeCompBox(compGroup, TP_W, TP_H, TP_D, tpX, tpPcbY, tpZ, 0x1a2a2a,
@@ -1640,26 +1611,19 @@ function updateEnclosure() {
     '/static/components/tp4056.jpg', 'tp4056');
   placeConnectors('tp4056', tpX, tpPcbY, tpZ, compGroup, connReg);
 
-  // Cradle: side rails + front/rear stops
-  const cradleMat = new THREE.MeshStandardMaterial({ color: 0x2a3a2a, roughness: 0.6, metalness: 0.1 });
-  const RAIL_H = 5, RAIL_T = 1.5;
-  makeBox(mountGroup, RAIL_T, RAIL_H, TP_D, tpX - TP_W/2 - RAIL_T/2, floorY + RAIL_H/2, tpZ, cradleMat); // left rail
-  makeBox(mountGroup, RAIL_T, RAIL_H, TP_D, tpX + TP_W/2 + RAIL_T/2, floorY + RAIL_H/2, tpZ, cradleMat); // right rail
-  makeBox(mountGroup, TP_W + 2*RAIL_T, RAIL_H, RAIL_T, tpX, floorY + RAIL_H/2, tpZ - TP_D/2 - RAIL_T/2, cradleMat); // front stop
-  makeBox(mountGroup, TP_W + 2*RAIL_T, RAIL_H, RAIL_T, tpX, floorY + RAIL_H/2, tpZ + TP_D/2 + RAIL_T/2, cradleMat); // rear stop
 
   /* ───────────────────────────────────────────────────────────────────
    * 40 mm Speaker
    * Outer dia: 40 mm (radius 20 mm), depth: ~20 mm
-   * Mounting: 4× M3 screws on 32 mm bolt circle (radius 16 mm)
-   *   Bolts at 0°, 90°, 180°, 270° (12/3/6/9 o'clock)
-   * Mounted on right wall interior face, speaker cone pointing right (+X)
+   * Visaton K 50 WP 8Ω (Art. 2915) — datasheet verified 2026-03
+   * Mounting: 4× M4 Ø4.5mm holes on □31.5mm square pattern (holes at corners of 31.5×31.5mm square)
+   * Mounted on right wall interior face, cone pointing right (+X), IP65
    */
-  const SPK_R        = 20;   // outer radius
-  const SPK_CONE_R   = 17;   // visible cone radius
-  const SPK_DEPTH    = 20;
-  const SPK_BOLT_R   = 16;   // M3 bolt circle radius
-  const SPK_BOSS_R   = 3.5;  // boss OD / 2 for M3
+  const SPK_R        = 25;     // outer frame radius (Ø50mm)
+  const SPK_CONE_R   = 22.75;  // panel cutout radius (Ø45.5mm per datasheet)
+  const SPK_DEPTH    = 18;     // body depth (mm)
+  const SPK_BOLT_SQ  = 15.75;  // half of □31.5mm square bolt pattern (hole centres ±15.75mm)
+  const SPK_BOSS_R   = 4.5;    // boss OD / 2 for M4 (9mm OD)
 
   const spkY = floorY + 30;  // speaker centre height off floor
   const spkZ = -5;            // slight forward offset
@@ -1682,17 +1646,6 @@ function updateEnclosure() {
   coneM.rotation.y = Math.PI / 2;
   coneM.position.set(spkFaceX, spkY, spkZ);
   compGroup.add(coneM);
-
-  // 4× M3 boss cylinders at right wall, 0/90/180/270° on 32 mm bolt circle
-  for (let i = 0; i < 4; i++) {
-    const angle = i * Math.PI / 2;  // 0°, 90°, 180°, 270°
-    const by = spkY + SPK_BOLT_R * Math.sin(angle);
-    const bz = spkZ + SPK_BOLT_R * Math.cos(angle);
-    const bm = new THREE.Mesh(new THREE.CylinderGeometry(SPK_BOSS_R, SPK_BOSS_R, t + 3, 14), BRASS_MAT());
-    bm.rotation.z = Math.PI / 2;
-    bm.position.set(hW - (t + 3) / 2, by, bz);
-    mountGroup.add(bm);
-  }
 
   /* ───────────────────────────────────────────────────────────────────
    * 18650 LiPo Battery Pack
@@ -1784,47 +1737,6 @@ function updateEnclosure() {
    * Velcro pads: 3× 20×14 mm double-sided hook-and-loop squares across battery width
    *              (stick hook to cradle floor, loop to battery underside)
    */
-  {
-    const cradleMat = new THREE.MeshStandardMaterial({ color: 0x2d3e2d, roughness: 0.65, metalness: 0.05 });
-    const slotMat   = new THREE.MeshStandardMaterial({ color: 0x060606 });
-    const velcroMat = new THREE.MeshStandardMaterial({ color: 0x1a1010, roughness: 0.98, metalness: 0.0 });
-
-    const BASE_T = 2, MARGIN = 3;
-    const CW = BAT_W + MARGIN * 2;  // cradle width  = 76 mm
-    const CD = BAT_D + MARGIN * 2;  // cradle depth  = 41 mm
-
-    // Base plate — printed with enclosure floor → encGroup (shows in wireframe + export)
-    makeBox(encGroup, CW, BASE_T, CD, batX, floorY + BASE_T / 2, batZ, cradleMat);
-
-    // End stops — block sliding along cell axis (X)
-    const STOP_T = 3, STOP_H = 12;
-    const stopX0 = batX - BAT_W / 2 - MARGIN - STOP_T / 2;
-    const stopX1 = batX + BAT_W / 2 + MARGIN + STOP_T / 2;
-    makeBox(encGroup, STOP_T, STOP_H, CD, stopX0, floorY + BASE_T + STOP_H / 2, batZ, cradleMat);
-    makeBox(encGroup, STOP_T, STOP_H, CD, stopX1, floorY + BASE_T + STOP_H / 2, batZ, cradleMat);
-
-    // Zip-tie tabs: 2 X-positions × 2 Z-sides = 4 tabs
-    // Each tab has a 3.5 × 2.5 mm horizontal slot for a 3 mm zip tie
-    const TAB_W = 7, TAB_H = BAT_H + 8, TAB_D = 3;
-    const SLOT_W = 3.5, SLOT_H = 2.5;
-    const slotY = floorY + BASE_T + BAT_H * 0.65;          // slot at ~2/3 battery height
-    const tabZf  = batZ - BAT_D / 2 - MARGIN - TAB_D / 2;  // front Z-side
-    const tabZr  = batZ + BAT_D / 2 + MARGIN + TAB_D / 2;  // rear  Z-side
-    for (const tx of [batX - BAT_W * 0.28, batX + BAT_W * 0.28]) {
-      for (const tz of [tabZf, tabZr]) {
-        makeBox(encGroup, TAB_W, TAB_H, TAB_D, tx, floorY + BASE_T + TAB_H / 2, tz, cradleMat);
-        // Zip-tie slot — dark void punched through the tab face
-        makeBox(encGroup, SLOT_W, SLOT_H, TAB_D + 0.5, tx, slotY, tz, slotMat);
-      }
-    }
-
-    // Velcro pads — not printed; stay in mountGroup (toggle-able accessory)
-    const PAD_W = 20, PAD_H = 1.5, PAD_D = 14;
-    for (const vx of [batX - BAT_W * 0.28, batX, batX + BAT_W * 0.28]) {
-      makeBox(mountGroup, PAD_W, PAD_H, PAD_D, vx, floorY + BASE_T + PAD_H / 2, batZ, velcroMat);
-    }
-  }
-
   /* ── Wire routing — drawn between registered connector endpoints ── */
   WIRE_ROUTES.forEach(route => {
     const from = connReg.get(route.from);
@@ -1841,15 +1753,6 @@ function updateEnclosure() {
   });
 
 
-  /* ════════════════════════════════════════════════════════════════
-     CSG WALL BUILDING WITH ACTUAL CUTOUT HOLES
-     ════════════════════════════════════════════════════════════════
-     Now that component positions are finalised, build each wall with
-     CSG boolean subtraction of lens/dome/speaker/USB-C holes.
-     These meshes are visual only; the export geometry is built
-     separately below as a watertight hollow-box solid.
-  ════════════════════════════════════════════════════════════════ */
-
   // Helper: make a pre-translated geo (world space)
   const boxGeoAt = (w2,h2,d2,tx,ty,tz) =>
     geoAt(new THREE.BoxGeometry(w2,h2,d2), tx, ty, tz);
@@ -1862,50 +1765,6 @@ function updateEnclosure() {
   // Box hole along X (USB-C slot on right wall)
   const boxHoleX = (bw, bh, bd, tx, ty, tz) =>
     geoAt(new THREE.BoxGeometry(t+4, bh, bd), tx, ty, tz);
-
-  const wallShell = shellMat;
-
-  // Floor (no holes)
-  makeWall(encGroup, wallShell(),
-    boxGeoAt(W, t, D, 0, t/2, 0), []);
-
-  // Front wall: camera lens + PIR dome holes
-  makeWall(encGroup, wallShell(),
-    boxGeoAt(W, H, t, 0, hH, -hD + t/2),
-    [
-      cylHoleZ(CAM_LENS_R + 0.6, t + 4, camX, camLensY, -hD + t/2),
-      cylHoleZ(PIR_DOME_R + 1.6, t + 4, pirX, pirPcbY,  -hD + t/2),
-    ]);
-
-  // Back wall (no holes)
-  makeWall(encGroup, wallShell(),
-    boxGeoAt(W, H, t, 0, hH, hD - t/2), []);
-
-  // Left wall (no holes)
-  makeWall(encGroup, wallShell(),
-    boxGeoAt(t, H, D, -hW + t/2, hH, 0), []);
-
-  // Right wall: speaker grille + USB-C slot
-  makeWall(encGroup, wallShell(),
-    boxGeoAt(t, H, D, hW - t/2, hH, 0),
-    [
-      cylHoleX(SPK_R + 1, t + 4, hW - t/2, spkY, spkZ),
-      boxHoleX(t+4, 3.6, 10, hW - t/2, tpPcbY + 1.5, tpZ),
-    ]);
-
-  // Lid corner boss columns (solid additions — no CSG needed)
-  {
-    const lidMat2 = () => new THREE.MeshStandardMaterial({ color: 0x3a4a3a, roughness: 0.6, metalness: 0.1 });
-    const bossCx = hW - t - 6, bossCz = hD - t - 6;
-    [[bossCx, bossCz],[-bossCx, bossCz],[bossCx,-bossCz],[-bossCx,-bossCz]].forEach(([bx, bz]) => {
-      makeCyl(encGroup, 5, 5, H - t, bx, t + (H-t)/2, bz, lidMat2());
-      const holeMat = new THREE.MeshBasicMaterial({ color: 0x888888, side: THREE.DoubleSide });
-      const holeM = new THREE.Mesh(new THREE.CircleGeometry(1.5, 16), holeMat);
-      holeM.rotation.x = -Math.PI/2;
-      holeM.position.set(bx, H + 0.1, bz);
-      encGroup.add(holeM);
-    });
-  }
 
   /* ════════════════════════════════════════════════════════════════
      DIMENSION ANNOTATIONS
@@ -2026,7 +1885,7 @@ function updateEnclosure() {
       new THREE.Vector3(hW, spkY - SPK_R - 1, spkZ),
       new THREE.Vector3(hW, spkY + SPK_R + 1, spkZ),
       new THREE.Vector3(rX1, 0, 0),
-      `Ø${((SPK_R + 1) * 2).toFixed(1)} mm`);
+      `Ø${(SPK_CONE_R * 2).toFixed(1)} mm`);
 
     // C2. Speaker centre height from interior floor
     makeDim(dimGroup,
@@ -2112,15 +1971,23 @@ function updateEnclosure() {
     const exportHoles = [
       cylHoleZ(CAM_LENS_R + 0.6, t + 4, camX,     camLensY,        -hD + t/2),
       cylHoleZ(PIR_DOME_R + 1.6, t + 4, pirX,     pirPcbY,         -hD + t/2),
-      cylHoleX(SPK_R + 1,        t + 4, hW - t/2, spkY,            spkZ),
+      cylHoleX(SPK_CONE_R,       t + 4, hW - t/2, spkY,            spkZ),
       geoAt(new THREE.BoxGeometry(t + 4, 3.6, 10), hW - t/2, tpPcbY + 1.5, tpZ),
     ];
 
     const bodyGeo = csgSubtract(outerBox, [innerCav, ...exportHoles]);
     bodyGeo.computeVertexNormals();
 
-    // Lid — simple closed solid (always manifold)
-    const lidRaw = geoAt(new THREE.BoxGeometry(W, t, D), 0, H + p.lidGap + t / 2, 0);
+    // Lid — flat plate with 4 clearance holes at lid-boss corners (M3 screw passes through)
+    const lidY   = H + p.lidGap + t / 2;
+    const lidCx  = hW - t - 6, lidCz = hD - t - 6;   // same XZ as body corner bosses
+    const lidRaw = geoAt(new THREE.BoxGeometry(W, t, D), 0, lidY, 0);
+    const lidClearHoles = [[lidCx,lidCz],[-lidCx,lidCz],[lidCx,-lidCz],[-lidCx,-lidCz]]
+      .map(([bx, bz]) => geoAt(new THREE.CylinderGeometry(1.7, 1.7, t + 2, 12), bx, lidY, bz));
+    // LED indicator window above TP4056 charge LEDs (matches visual lid)
+    lidClearHoles.push(geoAt(new THREE.BoxGeometry(12, t + 2, 5), tpX + 6, lidY, tpZ));
+    const lidGeo = csgSubtract(lidRaw, lidClearHoles);
+    lidGeo.computeVertexNormals();
 
     // --- Build print-layout copies ---
     // Body: floor already at y=0 → 3MF Z=0 (build plate). Keep indexed.
@@ -2136,7 +2003,7 @@ function updateEnclosure() {
     //   → Three.js Z of lid centre = −(D/2 + 5 + D/2) = −(D + 5).
     //   Max footprint at slider limits: W_max=200, D_max=140 → 200×(140+5+140)=200×285.
     //   Both dimensions ≤ 256 mm (200 ✓, 285 – warn only; body+lid each always ≤ 256).
-    const lidPrint = lidRaw.clone();
+    const lidPrint = lidGeo.clone();
     ['uv','uv1','uv2','color'].forEach(a => { try { lidPrint.deleteAttribute(a); } catch(_){} });
     lidPrint.applyMatrix4(new THREE.Matrix4().makeTranslation(
       0,               // same X centre as body (long axis)
@@ -2179,11 +2046,106 @@ function updateEnclosure() {
         cradleGeos.push(csgSubtract(tabGeo, [slotGeo]));
       }
     }
-    // Merge cradle pieces + body shell into one geometry before export
-    const toNI = g => { const ni = g.index ? g.toNonIndexed() : g; ni.computeVertexNormals(); return ni; };
+    // TP4056 friction cradle (side rails + front/rear stops)
+    const TP_RAIL_T = 1.5, TP_RAIL_H = 5;
+    [
+      geoAt(new THREE.BoxGeometry(TP_RAIL_T, TP_RAIL_H, TP_D), tpX - TP_W/2 - TP_RAIL_T/2, floorY + TP_RAIL_H/2, tpZ),
+      geoAt(new THREE.BoxGeometry(TP_RAIL_T, TP_RAIL_H, TP_D), tpX + TP_W/2 + TP_RAIL_T/2, floorY + TP_RAIL_H/2, tpZ),
+      geoAt(new THREE.BoxGeometry(TP_W + 2*TP_RAIL_T, TP_RAIL_H, TP_RAIL_T), tpX, floorY + TP_RAIL_H/2, tpZ - TP_D/2 - TP_RAIL_T/2),
+      geoAt(new THREE.BoxGeometry(TP_W + 2*TP_RAIL_T, TP_RAIL_H, TP_RAIL_T), tpX, floorY + TP_RAIL_H/2, tpZ + TP_D/2 + TP_RAIL_T/2),
+    ].forEach(g => cradleGeos.push(g));
+    // ── Printed bosses with pilot holes ─────────────────────────────────────
+    // Each pilot hole leaves 1 mm of plastic at the blind end and extends
+    // 1 mm BEYOND the open end to avoid coplanar faces breaking CSG.
+    const BLIND = 1, OVER = 1;
+
+    // Helper: boss (Y-axis, floor-mounted) with blind pilot hole opening at top
+    const SCREW_DEPTH = 12;  // max M3 engagement depth — caps tall corner columns
+    const floorBoss = (bx, bz, bH, bR, pR) => {
+      const depth = Math.min(bH - BLIND, SCREW_DEPTH); // cap so full-height columns aren't drilled through
+      const hLen = depth + OVER;                        // +OVER exits past top to avoid coplanar faces
+      const hCY  = floorY + bH - depth + hLen / 2;     // hole centre Y (opens at top)
+      const boss = geoAt(new THREE.CylinderGeometry(bR, bR, bH, 16), bx, floorY + bH/2, bz);
+      const hole = geoAt(new THREE.CylinderGeometry(pR, pR, hLen, 12), bx, hCY, bz);
+      return csgSubtract(boss, [hole]);
+    };
+
+    // Helper: wall boss (Z-axis, from front wall into enclosure, opens toward +Z)
+    const frontWallBoss = (bx, by, bD, bR, pR) => {
+      const bz0  = -hD + t;                     // wall interior face
+      const hLen = bD - BLIND + OVER;
+      const hCZ  = bz0 + BLIND + hLen / 2;      // hole opens at bz0+bD+OVER, blind at bz0+BLIND
+      const boss = geoAt(new THREE.CylinderGeometry(bR, bR, bD, 12), bx, by, bz0 + bD/2, -Math.PI/2, 0, 0);
+      const hole = geoAt(new THREE.CylinderGeometry(pR, pR, hLen, 10), bx, by, hCZ, -Math.PI/2, 0, 0);
+      return csgSubtract(boss, [hole]);
+    };
+
+    // Helper: wall boss (X-axis, from right wall into enclosure, opens toward +X / wall face)
+    const rightWallBoss = (by, bz, bD, bR, pR) => {
+      const bx0  = hW - t;                       // wall interior face
+      const hLen = bD - BLIND + OVER;
+      // Hole opens at bx0+OVER, blind at bx0-bD+BLIND — centre between those two ends
+      const hCX  = bx0 - bD + BLIND + hLen / 2;
+      const boss = geoAt(new THREE.CylinderGeometry(bR, bR, bD, 14), bx0 - bD/2, by, bz, 0, 0, -Math.PI/2);
+      const hole = geoAt(new THREE.CylinderGeometry(pR, pR, hLen, 12), hCX, by, bz, 0, 0, -Math.PI/2);
+      return csgSubtract(boss, [hole]);
+    };
+
+    // Pi Zero floor bosses (4×) — M2.6, Ø2.0 mm pilot
+    piHoles.forEach(([bx, bz]) => cradleGeos.push(floorBoss(bx, bz, PI_STANDOFF, PI_BOSS_R, PI_PILOT_R)));
+
+    // Amp floor bosses (2×) — M2.6, Ø2.0 mm pilot
+    ampHoles.forEach(([bx, bz]) => cradleGeos.push(floorBoss(bx, bz, AMP_STANDOFF, AMP_BOSS_R, AMP_PILOT_R)));
+
+    // Camera front-wall bosses (4×) — M2, Ø1.5 mm pilot
+    COMP_SPECS.camera_v3_noir.mountHoles.forEach(h =>
+      cradleGeos.push(frontWallBoss(camX + h.x, camPcbCentreY + h.z, 8, 2.5, 0.75)));
+
+    // PIR front-wall bosses (2×) — M2, Ø1.5 mm pilot; holes near bottom edge of PCB
+    COMP_SPECS.hc_sr501.mountHoles.forEach(h =>
+      cradleGeos.push(frontWallBoss(pirX + h.x, pirPcbY + h.z, 8, 2.5, 0.75)));
+
+    // Speaker right-wall bosses (4×) — M3, Ø2.3 mm pilot
+    // Speaker wall bosses (4×) — M4, Ø3.4mm pilot
+    // □31.5mm square pattern: holes at (±15.75, ±15.75) from speaker centre in YZ plane
+    { const bD = t + 6;
+      const hs = SPK_BOLT_SQ;
+      [[spkY+hs, spkZ+hs],[spkY+hs, spkZ-hs],[spkY-hs, spkZ+hs],[spkY-hs, spkZ-hs]]
+        .forEach(([by, bz]) => cradleGeos.push(rightWallBoss(by, bz, bD, SPK_BOSS_R, 1.7)));
+    }
+
+    // Lid corner boss pads (4×) — M3, Ø2.3 mm pilot
+    // Short rectangular blocks integrated into the corner walls — flush against both
+    // adjacent wall interior faces, only SCREW_DEPTH tall (no floor-to-ceiling column).
+    { const bossCx = hW - t - 6, bossCz = hD - t - 6;
+      const padW = 12;                       // 12 mm in both X and Z — fills corner nicely
+      const padH = SCREW_DEPTH + BLIND;      // 13 mm: screw engagement + 1 mm blind bottom
+      [[bossCx, bossCz],[-bossCx, bossCz],[bossCx,-bossCz],[-bossCx,-bossCz]].forEach(([bx, bz]) => {
+        const pad  = geoAt(new THREE.BoxGeometry(padW, padH, padW), bx, H - padH / 2, bz);
+        const hLen = SCREW_DEPTH + OVER;     // 13 mm: exits 1 mm past top to avoid coplanar
+        const hCY  = H - SCREW_DEPTH + hLen / 2;  // hole opens at Y=H+OVER, blind at Y=H-SCREW_DEPTH
+        const hole = geoAt(new THREE.CylinderGeometry(1.15, 1.15, hLen, 12), bx, hCY, bz);
+        cradleGeos.push(csgSubtract(pad, [hole]));
+      });
+    }
+
+    // Merge cradle pieces + body shell into one geometry before export.
+    // Strip UV/color attributes so all geometries are attribute-compatible for mergeGeometries.
+    const toNI = g => {
+      const ni = g.index ? g.toNonIndexed() : g;
+      ['uv','uv1','uv2','color'].forEach(a => { try { ni.deleteAttribute(a); } catch(_){} });
+      ni.computeVertexNormals();
+      return ni;
+    };
     const mergedBody = BufferGeometryUtils.mergeGeometries(
       [toNI(bodyPrint), ...cradleGeos.map(toNI)], false);
+    if (!mergedBody) throw new Error('mergeGeometries failed — check geometry attributes');
     mergedBody.computeVertexNormals();
+
+    // Render the unified CSG geometry in the scene — print-plate layout:
+    // body at Y=0..H (interior faces up), lid beside it at Y=0..t (interior faces up)
+    encGroup.add(new THREE.Mesh(mergedBody, shellMat()));
+    encGroup.add(new THREE.Mesh(lidPrint, shellMat()));
 
     // Two export objects: merged body+cradle, and lid
     exportParts    = [mergedBody, lidPrint];
@@ -2252,7 +2214,7 @@ opacityInput.addEventListener('input', () => {
   updateShellOpacity(parseFloat(opacityInput.value));
 });
 
-['ctrl-mounts','ctrl-dims'].forEach(id => {
+['ctrl-dims'].forEach(id => {
   document.getElementById(id).addEventListener('change', updateEnclosure);
 });
 
@@ -2273,10 +2235,9 @@ document.getElementById('ctrl-enclosure-only').addEventListener('change', e => {
   const encOnly = e.target.checked;
   // Hide/show all component and mount geometry
   if (compGroup)  compGroup.visible  = !encOnly;
-  if (mountGroup) mountGroup.visible = !encOnly;
   if (dimGroup)   dimGroup.visible   = !encOnly && document.getElementById('ctrl-dims').checked;
   // Disable the component-related controls visually while in enclosure-only mode
-  ['ctrl-mounts','ctrl-dims','ctrl-textures','ctrl-pcbwire'].forEach(id => {
+  ['ctrl-dims','ctrl-textures','ctrl-pcbwire'].forEach(id => {
     const el = document.getElementById(id);
     el.disabled = encOnly;
     el.closest('label').style.opacity = encOnly ? '0.4' : '';
@@ -2384,10 +2345,10 @@ const _sp = new THREE.Vector3(); // reused each frame — avoids GC pressure
     );
     _ray.setFromCamera(_mouse, camera);
 
-    // Only raycast against components + mounts — not the enclosure shell/floor
+    // Only raycast against components — not the enclosure shell/floor
     // (shell is transparent geometry that would always be the first hit).
     const targets = [];
-    [compGroup, mountGroup].forEach(grp => {
+    [compGroup].forEach(grp => {
       if (!grp) return;
       grp.traverse(obj => {
         if (obj.isMesh && obj.visible && !obj.userData.isPcbWire) targets.push(obj);

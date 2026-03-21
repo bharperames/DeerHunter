@@ -199,7 +199,7 @@
         </div>
         {% endfor %}
       </div>
-      <div style="font-size:0.7rem;color:#888;display:flex;gap:0.6rem;align-items:center;flex-wrap:wrap;">
+      <div style="font-size:0.7rem;color:#aaa;display:flex;gap:0.6rem;align-items:center;flex-wrap:wrap;">
         <span>State: <strong style="color:{{ '#e07070' if display_pipeline == 'DETECTED' else 'var(--text)' }}">{{ display_pipeline }}</strong></span>
         {% if last_confidence %}<span>Conf: <strong>{{ '%.0f%%'|format(last_confidence * 100) }}</strong></span>{% endif %}
         <span class="pdesc

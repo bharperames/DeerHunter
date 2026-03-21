@@ -49,13 +49,13 @@ header nav a:hover { color: var(--accent); }
 }
 .nav-btn--ghost:hover { border-color: var(--accent); color: var(--accent); background: var(--surface); }
 .nav-status { font-size: 0.72rem; }
-.nav-file-label { color: #888; font-family: monospace; max-width: 160px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.nav-file-label { color: #aaa; font-family: monospace; max-width: 160px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
 main { flex: 1; padding: 0 1rem 0.75rem; max-width: 1200px; margin: 0 auto; width: 100%; }
 h1 { margin-bottom: 1rem; font-size: 1.4rem; }
 
-footer { text-align: center; padding: 0.75rem; font-size: 0.8rem; color: #666; border-top: 1px solid var(--border); }
-footer a { color: #888; }
+footer { text-align: center; padding: 0.75rem; font-size: 0.8rem; color: #999; border-top: 1px solid var(--border); }
+footer a { color: #aaa; }
 
 /* Event table */
 table { width: 100%; border-collapse: collapse; }
@@ -93,8 +93,8 @@ button:hover { opacity: 0.85; }
 .alert-success { background: #1e3b1e; border: 1px solid var(--success); }
 .alert-error   { background: #3b1e22; border: 1px solid var(--error); color: var(--error); }
 
-.empty { color: #666; font-style: italic; margin-top: 1rem; }
-small { color: #888; }
+.empty { color: #999; font-style: italic; margin-top: 1rem; }
+small { color: #aaa; }
 
 /* Live feed — two-column layout */
 .live-layout {
@@ -111,7 +111,7 @@ small { color: #888; }
   background: #000;
 }
 img.live-frame { width: 100%; height: auto; display: block; }
-#status-bar { display: flex; align-items: center; gap: 0.75rem; font-size: 0.82rem; color: #888; }
+#status-bar { display: flex; align-items: center; gap: 0.75rem; font-size: 0.82rem; color: #aaa; }
 .btn-restart {
   margin: 0; padding: 0.2rem 0.6rem;
   font-size: 0.78rem; font-weight: 600;
@@ -144,7 +144,7 @@ img.live-frame { width: 100%; height: auto; display: block; }
   font-weight: 600;
   color: var(--text);
 }
-.det-cooldown { color: #888; font-weight: 400; }
+.det-cooldown { color: #aaa; font-weight: 400; }
 #det-list { overflow-y: auto; flex: 1; }
 .det-row--header {
   display: flex;
@@ -154,7 +154,7 @@ img.live-frame { width: 100%; height: auto; display: block; }
   font-weight: 600;
   text-transform: uppercase;
   letter-spacing: 0.04em;
-  color: #666;
+  color: #999;
   border-bottom: 1px solid var(--border);
   position: sticky; top: 0;
   background: var(--surface);
@@ -176,7 +176,7 @@ img.live-frame { width: 100%; height: auto; display: block; }
   color: #e07070;
   font-variant-numeric: tabular-nums;
 }
-.det-empty { color: #666; font-style: italic; padding: 0.75rem; font-size: 0.82rem; }
+.det-empty { color: #999; font-style: italic; padding: 0.75rem; font-size: 0.82rem; }
 
 /* Single snapshot page */
 img.snapshot { max-width: 720px; width: 100%; border-radius: 6px; border: 1px solid var(--border); }
@@ -202,7 +202,7 @@ img.snapshot { max-width: 720px; width: 100%; border-radius: 6px; border: 1px so
   font-weight: 700;
   text-transform: uppercase;
   letter-spacing: 0.06em;
-  color: #888;
+  color: #aaa;
   margin-bottom: 0.75rem;
   display: flex;
   align-items: center;
@@ -214,7 +214,7 @@ img.snapshot { max-width: 720px; width: 100%; border-radius: 6px; border: 1px so
   padding: 0.1rem 0.45rem;
   border-radius: 3px;
   background: #2a2a2a;
-  color: #666;
+  color: #999;
   letter-spacing: 0.04em;
 }
 .hw-badge--active {
@@ -425,7 +425,7 @@ img.snapshot { max-width: 720px; width: 100%; border-radius: 6px; border: 1px so
 }
 .pipe-icon {
   font-size: 1rem;
-  color: #888;
+  color: #aaa;
 }
 .pipe-step--active .pipe-icon { color: var(--accent); }
 .pipe-step--detected .pipe-icon { color: #e07070; }
@@ -434,13 +434,13 @@ img.snapshot { max-width: 720px; width: 100%; border-radius: 6px; border: 1px so
   font-weight: 700;
   text-transform: uppercase;
   letter-spacing: 0.05em;
-  color: #999;
+  color: #bbb;
 }
 .pipe-step--active .pipe-label { color: var(--accent); }
 .pipe-step--detected .pipe-label { color: #e07070; }
 .pipe-arrow-wrap { padding: 0 0.2rem; }
 .pipe-arrow {
-  color: #666;
+  color: #999;
   font-size: 1.2rem;
   font-weight: 300;
 }
@@ -520,7 +520,7 @@ img.snapshot { max-width: 720px; width: 100%; border-radius: 6px; border: 1px so
 .feed-panel { display: flex; flex-direction: column; gap: 0.3rem; }
 .feed-label {
   display: flex; align-items: center; gap: 0.4rem;
-  font-size: 0.75rem; color: #aaa;
+  font-size: 0.75rem; color: #ccc;
 }
 .feed-video-box {
   width: 100%;
@@ -557,7 +557,7 @@ img.snapshot { max-width: 720px; width: 100%; border-radius: 6px; border: 1px so
   font-weight: 700;
   text-transform: uppercase;
   letter-spacing: 0.12em;
-  color: #4a7a4a;
+  color: #7ab87a;
   margin-bottom: 0.1rem;
   border-bottom: 1px solid #1a2a1a;
   padding-bottom: 0.2rem;
@@ -595,9 +595,9 @@ img.snapshot { max-width: 720px; width: 100%; border-radius: 6px; border: 1px so
   letter-spacing: 0.03em;
 }
 .pout-sig  { color: #ccddcc; min-width: 50px; font-weight: 600; }
-.pout-role { color: #667766; flex: 1; font-size: 0.62rem; }
+.pout-role { color: #99aa99; flex: 1; font-size: 0.62rem; }
 .pout-state {
-  color: #445544;
+  color: #7a9a7a;
   min-width: 42px;
   text-align: right;
   font-weight: 700;
@@ -654,12 +654,12 @@ img.snapshot { max-width: 720px; width: 100%; border-radius: 6px; border: 1px so
 .comp-title {
   font-size: 0.85rem;
   font-weight: 700;
-  color: #ddd;
+  color: #f0f0f0;
   margin-bottom: 0.1rem;
 }
 .comp-model {
   font-size: 0.65rem;
-  color: #555;
+  color: #bbb;
   font-family: monospace;
   margin-bottom: 0.4rem;
 }
@@ -667,14 +667,15 @@ img.snapshot { max-width: 720px; width: 100%; border-radius: 6px; border: 1px so
   list-style: none;
   padding: 0; margin: 0 0 0.5rem;
   flex: 1;
+  color: #fff;
 }
 .comp-specs li {
   font-size: 0.68rem;
-  color: #777;
+  color: #fff;
   padding: 0.1rem 0;
-  border-bottom: 1px solid #161616;
+  border-bottom: 1px solid #1e1e1e;
 }
-.comp-specs li::before { content: '· '; color: #333; }
+.comp-specs li::before { content: '· '; color: #777; }
 .comp-role {
   display: inline-block;
   font-size: 0.58rem;
@@ -728,7 +729,7 @@ img.snapshot { max-width: 720px; width: 100%; border-radius: 6px; border: 1px so
   box-shadow: 0 8px 40px rgba(0,0,0,0.8);
 }
 #lightbox-caption {
-  color: #888; font-size: 0.75rem; font-family: monospace;
+  color: #aaa; font-size: 0.75rem; font-family: monospace;
 }
 
 /* ─── Pipeline mini (inside main card, lower left) ──────────────────────── */
