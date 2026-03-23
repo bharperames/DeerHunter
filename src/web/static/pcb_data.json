@@ -1,0 +1,149 @@
+{
+  "max98357a": {
+    "outline": [
+      {
+        "x": -8.89,
+        "z": -6.985
+      },
+      {
+        "x": -6.35,
+        "z": -9.525
+      },
+      {
+        "x": 6.35,
+        "z": -9.525
+      },
+      {
+        "x": 8.89,
+        "z": -6.985
+      },
+      {
+        "x": 8.89,
+        "z": 6.985
+      },
+      {
+        "x": 6.35,
+        "z": 9.525
+      },
+      {
+        "x": -6.35,
+        "z": 9.525
+      },
+      {
+        "x": -8.89,
+        "z": 6.985
+      }
+    ],
+    "boardSize": {
+      "w": 17.78,
+      "h": 19.05
+    },
+    "mountHoles": [
+      {
+        "x": 6.35,
+        "z": 6.985,
+        "drill": 2.75
+      },
+      {
+        "x": -6.35,
+        "z": 6.985,
+        "drill": 2.75
+      }
+    ],
+    "source": "adafruit/Adafruit-MAX98357-I2S-Amp-Breakout @ https://raw.githubusercontent.com/adafruit/Adafruit-MAX98357-I2S-Amp-Breakout/master/Adafruit%20MAX98357%20Breakout.brd"
+  },
+  "pi_zero_2w": {
+    "outline": [
+      {
+        "x": -32.5,
+        "z": -15.0
+      },
+      {
+        "x": 32.5,
+        "z": -15.0
+      },
+      {
+        "x": 32.5,
+        "z": 15.0
+      },
+      {
+        "x": -32.5,
+        "z": 15.0
+      }
+    ],
+    "boardSize": {
+      "w": 65.0,
+      "h": 30.0
+    },
+    "mountHoles": [
+      {
+        "x": -29.0,
+        "z": -11.5,
+        "drill": 2.75
+      },
+      {
+        "x": 29.0,
+        "z": -11.5,
+        "drill": 2.75
+      },
+      {
+        "x": -29.0,
+        "z": 11.5,
+        "drill": 2.75
+      },
+      {
+        "x": 29.0,
+        "z": 11.5,
+        "drill": 2.75
+      }
+    ],
+    "source": "datasheets.raspberrypi.com/pizero2w/raspberry-pi-zero-2-w-mechanical-drawing.pdf"
+  },
+  "camera_v3_noir": {
+    "outline": [
+      {
+        "x": -12.5,
+        "z": -12.0
+      },
+      {
+        "x": 12.5,
+        "z": -12.0
+      },
+      {
+        "x": 12.5,
+        "z": 12.0
+      },
+      {
+        "x": -12.5,
+        "z": 12.0
+      }
+    ],
+    "boardSize": {
+      "w": 25.0,
+      "h": 24.0
+    },
+    "mountHoles": [
+      {
+        "x": -10.5,
+        "z": -10.0,
+        "drill": 2.2
+      },
+      {
+        "x": 10.5,
+        "z": -10.0,
+        "drill": 2.2
+      },
+      {
+        "x": -10.5,
+        "z": 10.0,
+        "drill": 2.2
+      },
+      {
+        "x": 10.5,
+        "z": 10.0,
+        "drill": 2.2
+      }
+    ],
+    "source": "datasheets.raspberrypi.com (Camera Module v3 mechanical drawing)"
+  }
+}

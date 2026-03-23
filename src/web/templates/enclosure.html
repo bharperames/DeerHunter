@@ -185,6 +185,17 @@
         <span class="ep-check-label">Show PCB outlines</span>
       </label>
 
+      <button id="btn-tex-edit"
+        style="width:100%;padding:0.28rem 0;background:#111;border:1px solid #333;
+               color:#888;font-size:0.65rem;font-family:monospace;cursor:pointer;
+               border-radius:3px;margin-top:0.2rem;margin-bottom:0.2rem;
+               transition:background 0.15s,color 0.15s,border-color 0.15s;">
+        Calibrate Art Scale
+      </button>
+      <div id="tex-scale-status"
+        style="font-size:0.6rem;font-family:monospace;color:#555;
+               min-height:0.8rem;margin-bottom:0.3rem;text-align:center;"></div>
+
       <label class="ep-check-row">
         <input type="checkbox" id="ctrl-enclosure-only">
         <span class="ep-check-label">Enclosure only</span>
@@ -367,6 +378,11 @@ let exportGeometry = null;   // merged printable geometry (set after CSG build)
 let exportParts    = null;   // [bodyGeo, lidGeo] — separate manifold shells for 3MF
 let tessMode = false;        // wireframe overlay toggle
 let showTextures = true;     // whether product-photo textures are shown on PCBs
+// texRects[compId] = { x0, y0, x1, y1 } — canvas-pixel rect of the drawn image.
+// Initialized from the letterbox-fit on first load; persists across scene rebuilds.
+const texRects   = {};
+let   texEditMode = false;
+let   texHandleGroup = null;
 
 function disposeGroup(g) {
   if (!g) return;
@@ -611,6 +627,100 @@ function applyPcbWireMode(show) {
 }
 
 /* ─────────────────────────────────────────────────────────────────────────
+   Texture calibration — in-scene drag handles for art scale adjustment
+   ─────────────────────────────────────────────────────────────────────────
+
+   Each PCB component with a product photo gets a teal sphere handle at the
+   top-right corner of its art face. Drag left/right to scale the photo.
+   Yellow hole rings stay fixed — align the photo holes to those rings.
+   ───────────────────────────────────────────────────────────────────────── */
+
+function refreshTexHandles() {
+  // Remove existing handles
+  if (texHandleGroup) {
+    texHandleGroup.traverse(o => {
+      if (o.geometry) o.geometry.dispose();
+      if (o.material) o.material.dispose();
+    });
+    scene.remove(texHandleGroup);
+    texHandleGroup = null;
+  }
+  if (!texEditMode || !compGroup) return;
+
+  texHandleGroup = new THREE.Group();
+  scene.add(texHandleGroup);
+
+  // Corner definitions: [face-signX, face-signY, canvas edges affected, label]
+  // affects = which edges of texRect this corner moves when dragged.
+  // Opposite corner stays fixed → image stretches from that anchor.
+  const CORNERS = [
+    { sx: -1, sy: -1, affects: { x0:1, y0:1, x1:0, y1:0 }, label: 'TL' },
+    { sx: +1, sy: -1, affects: { x0:0, y0:1, x1:1, y1:0 }, label: 'TR' },
+    { sx: -1, sy: +1, affects: { x0:1, y0:0, x1:0, y1:1 }, label: 'BL' },
+    { sx: +1, sy: +1, affects: { x0:0, y0:0, x1:1, y1:1 }, label: 'BR' },
+  ];
+  const E = 0.15;  // outward offset so handles clear the face
+
+  compGroup.traverse(obj => {
+    if (!obj.isMesh || !obj.userData.hasImg) return;
+    const { w, h, d } = obj.userData.boxDims || {};
+    if (w == null) return;
+    const af  = obj.userData.artFace;
+    const cid = obj.userData.compId;
+    const fi  = obj.userData.texFaceInfo || {};
+
+    // Position of a handle in mesh-local space.
+    // Corners sit at the edges of the CURRENT texRect, projected onto the face.
+    // If no rect yet, fall back to face corners.
+    function handleLocalPos(sx, sy, isCenter) {
+      const r = texRects[cid];
+      // Convert rect canvas coords to face-local mm offset from face center
+      // (using stored letterbox metrics if available)
+      let faceSx = sx, faceSy = sy;  // default: face corner
+      if (r && fi.cw) {
+        // rect edge position in canvas coords → face mm offset from center
+        const canvasX = sx > 0 ? r.x1 : r.x0;  // right or left edge
+        const canvasY = sy > 0 ? r.y1 : r.y0;  // bottom or top edge
+        faceSx = (canvasX / fi.cw - 0.5) * 2;   // –1..+1 over face width
+        faceSy = (canvasY / fi.ch - 0.5) * 2;   // –1..+1 over face height
+      }
+      if (isCenter) { faceSx = 0; faceSy = 0; }
+
+      if (af === 2)       // +Y: face spans X (width) × Z (depth)
+        return new THREE.Vector3(faceSx * w/2, h/2 + E, faceSy * d/2);
+      else if (af === 4)  // +Z: face spans X × Y
+        return new THREE.Vector3(faceSx * w/2, faceSy * h/2, d/2 + E);
+      else                // ±X: face spans Z (as "x") × Y
+        return new THREE.Vector3(w/2 + E, faceSy * h/2, faceSx * d/2);
+    }
+
+    function addHandle(sx, sy, isCenter, affects, label) {
+      const pos = handleLocalPos(sx, sy, isCenter);
+      obj.localToWorld(pos);
+      const hMesh = new THREE.Mesh(
+        new THREE.SphereGeometry(isCenter ? 1.4 : 1.2, 10, 7),
+        new THREE.MeshStandardMaterial(isCenter
+          ? { color: 0xffaa22, emissive: 0xcc7700, emissiveIntensity: 0.55,
+              roughness: 0.2, metalness: 0.05, transparent: true, opacity: 0.92 }
+          : { color: 0x00ffcc, emissive: 0x00bb99, emissiveIntensity: 0.55,
+              roughness: 0.2, metalness: 0.05, transparent: true, opacity: 0.92 })
+      );
+      hMesh.position.copy(pos);
+      hMesh.userData.isTexHandle  = true;
+      hMesh.userData.handleCompId = cid;
+      hMesh.userData.affects      = affects;
+      hMesh.userData.isCenter     = isCenter;
+      hMesh.userData.cornerLabel  = label;
+      hMesh.userData.parentMesh   = obj;  // for sensitivity calc
+      texHandleGroup.add(hMesh);
+    }
+
+    CORNERS.forEach(c => addHandle(c.sx, c.sy, false, c.affects, c.label));
+    addHandle(0, 0, true, { x0:1, y0:1, x1:1, y1:1 }, 'C');
+  });
+}
+
+/* ─────────────────────────────────────────────────────────────────────────
    STL Binary Export  (no external library — matches StandMaker pattern)
    ───────────────────────────────────────────────────────────────────────── */
 function geometryToSTL(geo) {
@@ -770,7 +880,8 @@ const COMP_SPECS = {
     // PCB 65×30 mm; M2.5 holes 3.5 mm from each edge → ±29 mm (X), ±11.5 mm (Z)
     mountHoles: [{x:-29,z:-11.5},{x:29,z:-11.5},{x:-29,z:11.5},{x:29,z:11.5}],
     holeLabel: 'M2.5',
-    imgTransform: { rotate: 180, flipX: false },
+    imgTransform: { rotate: 0, flipX: false },
+    imgRect: { x0: -46, y0: -67, x1: 1368, y1: 684 },
     connectors: [
       {id:'usb_pwr', off:[-20.5, 0.8,-15], dir:'-Z', color:0xff4444, label:'5V PWR' },
       {id:'usb_otg', off:[-12.0, 0.8,-15], dir:'-Z', color:0x4488ff, label:'USB OTG'},
@@ -800,10 +911,10 @@ const COMP_SPECS = {
     ],
   },
   max98357a: {
-    // Adafruit #3006: PCB 19.05×17.78 mm (Eagle .brd verified; product page: 19.4×17.8 mm)
-    // 2× M2.5 oval slots, ~2 mm from each long (19.05 mm) edge → ±7.53 mm from centre
-    // I2S 5-pin header on one short edge (−Z); speaker spring terminals on other (+Z)
-    mountHoles: [{x:-7.53,z:0},{x:7.53,z:0}],
+    // Adafruit #3006: PCB 17.78×19.05 mm (Eagle .brd verified)
+    // 2× M2.5 plated holes, Eagle (±6.35, +6.985) from board centre
+    // Both holes near SPK terminal edge (+Z), symmetric in X — see tools/parse_brd.py
+    mountHoles: [{x:6.35,z:6.985},{x:-6.35,z:6.985}],
     holeLabel: 'M2.5',
     imgTransform: { rotate: 180, flipX: false },
     connectors: [
@@ -992,7 +1103,7 @@ function makePcbTopTex(w, d, bgColor, name, dims, specs, accentColor, mountHoles
  * Side faces: text labels.
  * imgURL: product image URL (optional, loaded async — shown on top of PCB art).
  */
-function makeCompBox(parent, w, h, d, x, y, z, bgColor, name, dims, specs, imgURL='', compId='') {
+function makeCompBox(parent, w, h, d, x, y, z, bgColor, name, dims, specs, imgURL='', compId='', imgURLOpp='') {
   const accent = 'rgba(180,220,160,0.6)';
   const compSpec   = compId ? COMP_SPECS[compId] : null;
   const imgXform   = compSpec ? compSpec.imgTransform : { rotate: 0, flipX: false };
@@ -1025,9 +1136,13 @@ function makeCompBox(parent, w, h, d, x, y, z, bgColor, name, dims, specs, imgUR
   mesh.castShadow = mesh.receiveShadow = true;
   parent.add(mesh);
 
+  // Store metadata needed by the texture calibration system
+  mesh.userData.boxDims = { w, h, d };
+  mesh.userData.artFace = artFace;
+  if (compId) mesh.userData.compId = compId;
+
   // Async: draw product photo onto a canvas sized to the face, then use as texture.
-  // This guarantees correct aspect ratio without UV repeat/offset tricks.
-  // Applied to artFace AND the opposite face (artFace^1) for visibility from both sides.
+  // imgURL  → top (artFace).   imgURLOpp → bottom (oppFace); if omitted, flipped copy of top.
   if (imgURL) {
     const oppFace = artFace ^ 1;
     const [faceW, faceH] = faceDims[artFace];
@@ -1038,7 +1153,6 @@ function makeCompBox(parent, w, h, d, x, y, z, bgColor, name, dims, specs, imgUR
       const imgAspect  = img.naturalWidth / img.naturalHeight;
       const faceAspect = faceW / faceH;
 
-      // Canvas sized proportionally to the face (20 px/mm for hi-res)
       const PX = 20;
       const cw = Math.round(faceW * PX);
       const ch = Math.round(faceH * PX);
@@ -1046,16 +1160,15 @@ function makeCompBox(parent, w, h, d, x, y, z, bgColor, name, dims, specs, imgUR
 
       let dw, dh, dx, dy;
       if (imgAspect > faceAspect) {
-        dw = cw;        dh = cw / imgAspect;
-        dx = 0;         dy = (ch - dh) / 2;
+        dw = cw;            dh = cw / imgAspect;
+        dx = 0;             dy = (ch - dh) / 2;
       } else {
-        dh = ch;        dw = ch * imgAspect;
+        dh = ch;            dw = ch * imgAspect;
         dx = (cw - dw) / 2; dy = 0;
       }
 
       // Apply per-component image transform (rotate180 or flipX) then draw.
-      // For the opposite (underside) face, additionally mirror horizontally so
-      // the image reads correctly when viewed through the board.
+      // extraFlipX mirrors the canvas for the underside view.
       function makeImgTex(transform, extraFlipX) {
         const c = document.createElement('canvas');
         c.width = cw; c.height = ch;
@@ -1068,15 +1181,16 @@ function makeCompBox(parent, w, h, d, x, y, z, bgColor, name, dims, specs, imgUR
           ctx.rotate(Math.PI);
         }
         if (transform.flipX || extraFlipX) {
-          // If rotate was applied above, the translation origin shifted; flip in
-          // the already-transformed space by undoing the rotate-translate offset.
           if (transform.rotate === 180) {
             ctx.translate(-cw, 0); ctx.scale(-1, 1); ctx.translate(cw, 0);
           } else {
             ctx.translate(cw, 0); ctx.scale(-1, 1);
           }
         }
-        ctx.drawImage(img, dx, dy, dw, dh);
+        // Initialize rect from letterbox fit on first load; keep user edits after that.
+        if (!texRects[compId]) texRects[compId] = { x0: dx, y0: dy, x1: dx+dw, y1: dy+dh };
+        const r = texRects[compId];
+        ctx.drawImage(img, r.x0, r.y0, r.x1 - r.x0, r.y1 - r.y0);
         ctx.restore();
         const tex = new THREE.CanvasTexture(c);
         tex.colorSpace = THREE.SRGBColorSpace;
@@ -1085,24 +1199,97 @@ function makeCompBox(parent, w, h, d, x, y, z, bgColor, name, dims, specs, imgUR
       }
 
       const artImgTex = makeImgTex(imgXform, false);
-      const oppImgTex = makeImgTex(imgXform, true);
+      // Only create flipped-copy opp tex when no dedicated opp image is provided.
+      const defaultOppTex = imgURLOpp ? null : makeImgTex(imgXform, true);
       imgTex.dispose();
 
-      // Store photo tex and plain bgColor so texture toggle can swap them.
-      // pcbTex (canvas PCB art) remains the loading placeholder only.
       mats[artFace].userData.imgTex = artImgTex;
       mats[artFace].userData.bgHex  = bgColor;
-      mats[oppFace].userData.imgTex = oppImgTex;
       mats[oppFace].userData.bgHex  = bgColor;
+      if (defaultOppTex) mats[oppFace].userData.imgTex = defaultOppTex;
 
       if (showTextures) {
         mats[artFace].map = artImgTex; mats[artFace].color.set(0xffffff); mats[artFace].needsUpdate = true;
-        mats[oppFace].map = oppImgTex; mats[oppFace].color.set(0xffffff); mats[oppFace].needsUpdate = true;
+        if (defaultOppTex) {
+          mats[oppFace].map = defaultOppTex; mats[oppFace].color.set(0xffffff); mats[oppFace].needsUpdate = true;
+        }
       } else {
         mats[artFace].map = null; mats[artFace].color.setHex(bgColor); mats[artFace].needsUpdate = true;
-        mats[oppFace].map = null; mats[oppFace].color.setHex(bgColor); mats[oppFace].needsUpdate = true;
+        if (defaultOppTex) {
+          mats[oppFace].map = null; mats[oppFace].color.setHex(bgColor); mats[oppFace].needsUpdate = true;
+        }
+      }
+
+      // Calibration regen — only artFace; opp face is independent.
+      if (compId) {
+        mesh.userData.hasImg      = true;
+        mesh.userData.texFaceInfo = { faceW, faceH, cw, ch, dx, dy, dw, dh };
+        mesh.userData.regenTex = function() {
+          const at = makeImgTex(imgXform, false);
+          if (mats[artFace].userData.imgTex) mats[artFace].userData.imgTex.dispose();
+          mats[artFace].userData.imgTex = at;
+          if (showTextures) {
+            mats[artFace].map = at; mats[artFace].color.set(0xffffff); mats[artFace].needsUpdate = true;
+          }
+          if (defaultOppTex) {
+            const ot = makeImgTex(imgXform, true);
+            if (mats[oppFace].userData.imgTex) mats[oppFace].userData.imgTex.dispose();
+            mats[oppFace].userData.imgTex = ot;
+            if (showTextures) {
+              mats[oppFace].map = ot; mats[oppFace].color.set(0xffffff); mats[oppFace].needsUpdate = true;
+            }
+          }
+        };
+        if (texEditMode) refreshTexHandles();
       }
     }, undefined, () => {});
+
+    // Load dedicated bottom-face image if provided.
+    // The -Y face is viewed from below, so mirror horizontally for correct orientation.
+    if (imgURLOpp) {
+      const oppFaceOpp = artFace ^ 1;
+      const [oFW, oFH]  = faceDims[oppFaceOpp];
+      const oppLoader = new THREE.TextureLoader();
+      oppLoader.crossOrigin = 'anonymous';
+      oppLoader.load(imgURLOpp, oppImgTex => {
+        const oImg = oppImgTex.image;
+        const oAspect = oImg.naturalWidth / oImg.naturalHeight;
+        const oFAspect = oFW / oFH;
+        const PX = 20;
+        const oCw = Math.round(oFW * PX), oCh = Math.round(oFH * PX);
+        const maxAniso = renderer.capabilities.getMaxAnisotropy();
+        let oDw, oDh, oDx, oDy;
+        if (oAspect > oFAspect) {
+          oDw = oCw; oDh = oCw / oAspect; oDx = 0; oDy = (oCh - oDh) / 2;
+        } else {
+          oDh = oCh; oDw = oCh * oAspect; oDx = (oCw - oDw) / 2; oDy = 0;
+        }
+        const oc = document.createElement('canvas');
+        oc.width = oCw; oc.height = oCh;
+        const octx = oc.getContext('2d');
+        octx.fillStyle = '#' + bgColor.toString(16).padStart(6, '0');
+        octx.fillRect(0, 0, oCw, oCh);
+        // Use calibrated imgRect if available, otherwise fall back to letterbox.
+        if (!texRects[compId]) texRects[compId] = { x0: oDx, y0: oDy, x1: oDx+oDw, y1: oDy+oDh };
+        const or = texRects[compId];
+        // rotate180 + flipX (mirror for -Y underside view) = flipY.
+        octx.save();
+        octx.translate(0, oCh); octx.scale(1, -1);
+        octx.drawImage(oImg, or.x0, or.y0, or.x1 - or.x0, or.y1 - or.y0);
+        octx.restore();
+        oppImgTex.dispose();
+        const tex = new THREE.CanvasTexture(oc);
+        tex.colorSpace = THREE.SRGBColorSpace;
+        tex.anisotropy = maxAniso;
+        mats[oppFaceOpp].userData.imgTex = tex;
+        mats[oppFaceOpp].userData.bgHex  = bgColor;
+        if (showTextures) {
+          mats[oppFaceOpp].map = tex; mats[oppFaceOpp].color.set(0xffffff); mats[oppFaceOpp].needsUpdate = true;
+        } else {
+          mats[oppFaceOpp].map = null; mats[oppFaceOpp].color.setHex(bgColor); mats[oppFaceOpp].needsUpdate = true;
+        }
+      }, undefined, () => {});
+    }
   }
 
   // ── PCB outline wireframe + mounting-hole rings + in-plane dims ──────────
@@ -1415,6 +1602,10 @@ function updateInfo(p) {
    Main rebuild
    ══════════════════════════════════════════════════════════════ */
 function updateEnclosure() {
+  // Clear calibration handles immediately — compGroup is about to be rebuilt
+  // and images reload asynchronously; each image load will re-add handles.
+  if (texEditMode) refreshTexHandles();
+
   const p = getParams();
   disposeGroup(encGroup);
   disposeGroup(compGroup);
@@ -1490,7 +1681,8 @@ function updateEnclosure() {
   makeCompBox(compGroup, PI_W, PI_H, PI_D, piX, piPcbY, piZ, 0x1a3a1a,
     'Pi Zero 2W', '65×30mm',
     ['ARM A53 1GHz', '512MB RAM', 'M2.5 × 4'],
-    '/static/components/pi_zero_2w.jpg', 'pi_zero_2w');
+    '/static/components/pi_zero_2w_top.jpg', 'pi_zero_2w',
+    '/static/components/pi_zero_2w_bottom.jpg');
   placeConnectors('pi_zero_2w', piX, piPcbY, piZ, compGroup, connReg);
 
   /* ───────────────────────────────────────────────────────────────────
@@ -2244,6 +2436,154 @@ document.getElementById('ctrl-enclosure-only').addEventListener('change', e => {
   });
 });
 
+// ── Texture calibration ───────────────────────────────────────────────────
+document.getElementById('btn-tex-edit').addEventListener('click', () => {
+  texEditMode = !texEditMode;
+  const btn      = document.getElementById('btn-tex-edit');
+  const statusEl = document.getElementById('tex-scale-status');
+  if (texEditMode) {
+    btn.style.background   = '#0a2a22';
+    btn.style.borderColor  = '#00ffcc';
+    btn.style.color        = '#00ffcc';
+    // Textures + PCB outlines on so calibration is visible
+    document.getElementById('ctrl-textures').checked = true;
+    applyTextureMode(true);
+    document.getElementById('ctrl-pcbwire').checked = true;
+    applyPcbWireMode(true);
+    refreshTexHandles();
+    statusEl.textContent = 'Drag teal handles ←→ to scale art';
+  } else {
+    btn.style.background  = '#111';
+    btn.style.borderColor = '#333';
+    btn.style.color       = '#888';
+    refreshTexHandles();  // removes handles (texEditMode is now false)
+    statusEl.textContent  = '';
+    showCalibrationExport();
+  }
+});
+
+// Drag state: { compId, affects, startX, startY, startRect, sensX, sensY }
+let _texDrag   = null;
+const _txRay   = new THREE.Raycaster();
+const _txMouse = new THREE.Vector2();
+
+function _regenComp(cid) {
+  if (!compGroup) return;
+  compGroup.traverse(obj => {
+    if (obj.isMesh && obj.userData.compId === cid && obj.userData.regenTex)
+      obj.userData.regenTex();
+  });
+}
+
+// Compute screen-pixel size of a face's X and Y extents.
+// Returns { sensX, sensY } — canvas pixels per screen pixel for each axis.
+function _faceSens(meshObj) {
+  const { w, h, d } = meshObj.userData.boxDims || { w:1, h:1, d:1 };
+  const fi = meshObj.userData.texFaceInfo || { cw:1, ch:1 };
+  const af = meshObj.userData.artFace;
+  const E  = 0.15;
+  const domRect = renderer.domElement.getBoundingClientRect();
+
+  // Two pairs of points spanning face X-axis and face Y-axis in local space
+  let px0, px1, py0, py1;
+  if (af === 2) {
+    px0 = new THREE.Vector3(-w/2, h/2+E, 0);
+    px1 = new THREE.Vector3( w/2, h/2+E, 0);
+    py0 = new THREE.Vector3(0, h/2+E, -d/2);
+    py1 = new THREE.Vector3(0, h/2+E,  d/2);
+  } else if (af === 4) {
+    px0 = new THREE.Vector3(-w/2, 0, d/2+E);
+    px1 = new THREE.Vector3( w/2, 0, d/2+E);
+    py0 = new THREE.Vector3(0, -h/2, d/2+E);
+    py1 = new THREE.Vector3(0,  h/2, d/2+E);
+  } else {
+    px0 = new THREE.Vector3(w/2+E, 0, -d/2);
+    px1 = new THREE.Vector3(w/2+E, 0,  d/2);
+    py0 = new THREE.Vector3(w/2+E, -h/2, 0);
+    py1 = new THREE.Vector3(w/2+E,  h/2, 0);
+  }
+  [px0,px1,py0,py1].forEach(p => { meshObj.localToWorld(p); p.project(camera); });
+
+  // NDC → screen pixels, guard against degenerate projection
+  const screenW = Math.max(4, Math.abs(px1.x - px0.x) / 2 * domRect.width);
+  const screenH = Math.max(4, Math.abs(py1.y - py0.y) / 2 * domRect.height);
+  return { sensX: fi.cw / screenW, sensY: fi.ch / screenH };
+}
+
+// Capture-phase listeners fire before OrbitControls.
+renderer.domElement.addEventListener('pointerdown', e => {
+  if (e.button !== 0 || !texEditMode || !texHandleGroup) return;
+  const domRect = renderer.domElement.getBoundingClientRect();
+  _txMouse.set(
+    ((e.clientX - domRect.left) / domRect.width)  *  2 - 1,
+    ((e.clientY - domRect.top)  / domRect.height) * -2 + 1
+  );
+  _txRay.setFromCamera(_txMouse, camera);
+  const hits = _txRay.intersectObjects(texHandleGroup.children, false);
+  if (hits.length === 0) return;
+
+  const h    = hits[0].object;
+  const cid  = h.userData.handleCompId;
+  const mesh = h.userData.parentMesh;
+
+  // Ensure a rect exists before we snapshot it
+  if (!texRects[cid] && mesh?.userData?.texFaceInfo) {
+    const fi = mesh.userData.texFaceInfo;
+    texRects[cid] = { x0: fi.dx, y0: fi.dy, x1: fi.dx + fi.dw, y1: fi.dy + fi.dh };
+  }
+  const r0 = texRects[cid] || { x0:0, y0:0, x1:100, y1:100 };
+  const { sensX, sensY } = mesh ? _faceSens(mesh) : { sensX: 1, sensY: 1 };
+
+  _texDrag = {
+    compId:    cid,
+    affects:   h.userData.affects,
+    isCenter:  h.userData.isCenter,
+    startX:    e.clientX,
+    startY:    e.clientY,
+    startRect: { ...r0 },
+    sensX, sensY,
+  };
+  controls.enabled = false;
+  renderer.domElement.style.cursor = h.userData.isCenter ? 'move' : 'crosshair';
+  e.stopImmediatePropagation();
+}, { capture: true });
+
+renderer.domElement.addEventListener('pointermove', e => {
+  if (!_texDrag) return;
+  const dx  = (e.clientX - _texDrag.startX) * _texDrag.sensX;
+  const dy  = (e.clientY - _texDrag.startY) * _texDrag.sensY;
+  const cid = _texDrag.compId;
+  const aff = _texDrag.affects;
+  const s   = _texDrag.startRect;
+
+  if (!texRects[cid]) texRects[cid] = { ...s };
+  const r = texRects[cid];
+  // Each edge moves only if this handle owns it.
+  // For corner handles the opposite edge stays at its startRect value.
+  if (aff.x0) r.x0 = s.x0 + dx;
+  if (aff.x1) r.x1 = s.x1 + dx;
+  if (aff.y0) r.y0 = s.y0 + dy;
+  if (aff.y1) r.y1 = s.y1 + dy;
+
+  _regenComp(cid);
+  refreshTexHandles();  // reposition handles to match new rect
+
+  const statusEl = document.getElementById('tex-scale-status');
+  if (statusEl) {
+    const rw = (r.x1 - r.x0).toFixed(0), rh = (r.y1 - r.y0).toFixed(0);
+    statusEl.textContent = `${cid}  ${rw}×${rh} px  (${r.x0.toFixed(0)}, ${r.y0.toFixed(0)})`;
+  }
+  e.stopImmediatePropagation();
+}, { capture: true });
+
+renderer.domElement.addEventListener('pointerup', e => {
+  if (!_texDrag) return;
+  controls.enabled = true;
+  renderer.domElement.style.cursor = '';
+  _texDrag = null;
+  e.stopImmediatePropagation();
+}, { capture: true });
+
 // Export buttons
 function setExportStatus(msg) {
   document.getElementById('export-status').textContent = msg;
@@ -2540,7 +2880,125 @@ let _lastFrameTime = performance.now();
   }
 })();
 
-/* ── Initial build ── */
-updateEnclosure();
+/* ── Initial build — async pcb_data merge then render ── */
+let pcbData = {};
+
+/* ── Calibration export ─────────────────────────────────────────────────────
+   Collects all texRects that differ from the default letterbox fit and shows
+   a modal with copy-able JSON.  The user pastes the JSON back so the values
+   can be hardcoded into COMP_SPECS.imgRect for permanent use.
+   ─────────────────────────────────────────────────────────────────────────── */
+function showCalibrationExport() {
+  const results = {};
+  if (compGroup) {
+    compGroup.traverse(obj => {
+      if (!obj.isMesh || !obj.userData.hasImg || !obj.userData.compId) return;
+      const cid = obj.userData.compId;
+      if (results[cid]) return;  // one entry per component
+      const r  = texRects[cid];
+      if (!r) return;
+      const fi = obj.userData.texFaceInfo || {};
+      // Only include if the rect was moved from its default letterbox position.
+      const defaultMatch = fi.dx != null
+        && Math.abs(r.x0 - fi.dx)        < 0.5
+        && Math.abs(r.y0 - fi.dy)        < 0.5
+        && Math.abs(r.x1 - (fi.dx+fi.dw)) < 0.5
+        && Math.abs(r.y1 - (fi.dy+fi.dh)) < 0.5;
+      if (defaultMatch) return;
+      results[cid] = {
+        imgRect: {
+          x0: Math.round(r.x0), y0: Math.round(r.y0),
+          x1: Math.round(r.x1), y1: Math.round(r.y1),
+        },
+        _canvasSize: { cw: fi.cw, ch: fi.ch },
+        _faceSize:   { w: fi.faceW, h: fi.faceH, units: 'mm' },
+      };
+    });
+  }
+
+  const hasResults = Object.keys(results).length > 0;
+  const json = hasResults
+    ? JSON.stringify(results, null, 2)
+    : '// No components were modified from their default letterbox fit.';
+
+  // Build modal
+  const overlay = document.createElement('div');
+  overlay.style.cssText = `
+    position:fixed;inset:0;background:rgba(0,0,0,0.75);
+    display:flex;align-items:center;justify-content:center;z-index:9999;`;
+
+  const box = document.createElement('div');
+  box.style.cssText = `
+    background:#111;border:1px solid #333;border-radius:6px;
+    padding:1.2rem 1.4rem;width:520px;max-width:90vw;
+    font-family:monospace;color:#eee;`;
+
+  const title = document.createElement('div');
+  title.style.cssText = 'font-size:0.7rem;font-weight:700;text-transform:uppercase;letter-spacing:0.1em;color:#eee;margin-bottom:0.8rem;';
+  title.textContent = 'Calibration Export — paste this back to integrate';
+
+  const note = document.createElement('div');
+  note.style.cssText = 'font-size:0.62rem;color:#eee;margin-bottom:0.6rem;line-height:1.5;';
+  note.textContent = 'Add imgRect: {...} to the matching COMP_SPECS entry. On next load the rect is applied before the letterbox default.';
+
+  const ta = document.createElement('textarea');
+  ta.value = json;
+  ta.readOnly = true;
+  ta.style.cssText = `
+    width:100%;height:220px;background:#0a0a0a;border:1px solid #2a2a2a;
+    color:#6abf69;font-family:monospace;font-size:0.65rem;line-height:1.5;
+    padding:0.6rem;border-radius:3px;resize:vertical;outline:none;box-sizing:border-box;`;
+
+  const btnRow = document.createElement('div');
+  btnRow.style.cssText = 'display:flex;gap:0.5rem;margin-top:0.75rem;';
+
+  const copyBtn = document.createElement('button');
+  copyBtn.textContent = 'Copy to clipboard';
+  copyBtn.style.cssText = `
+    flex:1;padding:0.35rem 0;background:#1a2a1a;border:1px solid #2a4a2a;
+    color:#6abf69;font-size:0.68rem;font-family:monospace;cursor:pointer;border-radius:3px;`;
+  copyBtn.onclick = () => {
+    navigator.clipboard.writeText(json).then(() => {
+      copyBtn.textContent = 'Copied!';
+      setTimeout(() => { copyBtn.textContent = 'Copy to clipboard'; }, 1800);
+    });
+  };
+
+  const closeBtn = document.createElement('button');
+  closeBtn.textContent = 'Close';
+  closeBtn.style.cssText = `
+    padding:0.35rem 1.2rem;background:#111;border:1px solid #333;
+    color:#eee;font-size:0.68rem;font-family:monospace;cursor:pointer;border-radius:3px;`;
+  closeBtn.onclick = () => overlay.remove();
+  overlay.onclick = e => { if (e.target === overlay) overlay.remove(); };
+
+  btnRow.append(copyBtn, closeBtn);
+  box.append(title, note, ta, btnRow);
+  overlay.append(box);
+  document.body.appendChild(overlay);
+  ta.select();
+}
+
+function buildScene() {
+  // Merge authoritative mount hole positions from pcb_data.json into COMP_SPECS.
+  Object.keys(pcbData).forEach(id => {
+    if (COMP_SPECS[id] && pcbData[id] && pcbData[id].mountHoles) {
+      COMP_SPECS[id].mountHoles = pcbData[id].mountHoles.map(h => ({ x: h.x, z: h.z }));
+    }
+  });
+  // Pre-load any hardcoded imgRect values into texRects so they take effect
+  // before the async image load (which only sets texRects[id] if not already set).
+  Object.keys(COMP_SPECS).forEach(id => {
+    if (COMP_SPECS[id].imgRect && !texRects[id]) {
+      texRects[id] = { ...COMP_SPECS[id].imgRect };
+    }
+  });
+  updateEnclosure();
+}
+
+fetch('/static/pcb_data.json')
+  .then(r => r.json())
+  .then(d => { pcbData = d; buildScene(); })
+  .catch(() => buildScene());  // graceful fallback to COMP_SPECS defaults
 </script>
 {% endblock %}
